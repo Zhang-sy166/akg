@@ -41,6 +41,7 @@ AIKG 利用大语言模型(LLM)的代码生成能力，通过大语言模型规�
 同时 AIKG 提供丰富的算子Agent相关子模块，用户可组合构建自定义算子Agents任务。
 
 ## 🗓️ 2. 更新日志
+- 2025-10-14：支持 TileLang_CUDA后端代码生成能力。KernelBench Level1 的 TileLang_CUDA后端算子生成成功率结果详见《[基准测试结果](./docs/CN/DSLBenchmarkResults202509.md)》。
 - 2025-09-26：支持 CUDA C 与 CPP 后端代码生成能力。KernelBench Level1 的 CUDA C 与 CPP 后端算子生成成功率结果详见《[基准测试结果](./docs/CN/DSLBenchmarkResults202509.md)》。
 - 2025-09-14：KernelBench Level1 算子生成成功率更新，详见《[基准测试结果](./docs/CN/BenchmarkResults202509.md)》。
 - 2025-08-12：支持"文档驱动式接入"功能，按统一文档规范提供资料即可快速、灵活地接入新的 DSL/前端/后端（详见《[文档驱动式接入指南](./docs/CN/DocDrivenIntegration.md)》）。
@@ -105,7 +106,7 @@ export AIKG_OLLAMA_API_BASE=http://localhost:11434
 初次克隆或拉取更新后，请使用以下命令初始化并下载 `aikg` 相关的依赖：
 ```bash
 # 初始化并拉取 aikg 相关的子模块
-git submodule update --init --remote "aikg/thirdparty/*"
+git submodule update --init "aikg/thirdparty/*"
 ```
 
 #### Step 2: 前端依赖配置

@@ -64,6 +64,8 @@ from {{ op_name }}_swft import {{ impl_func_name }}
 from {{ op_name }}_cuda_c import {{ impl_func_name }}
 {% elif dsl == "cpp" %}
 from {{ op_name }}_cpp import {{ impl_func_name }}
+{% elif dsl == "tilelang_cuda" %}
+from {{ op_name }}_tilelang_cuda import {{ impl_func_name }}
 {% endif %}
 
 # Timeout装饰器函数
@@ -304,9 +306,22 @@ def compare(framework_out_flatten, impl_out_flatten, limit, data_type):
     if err_cnt > limit_cnt:
         max_error = np.max(relative_error)
         mean_error = np.mean(relative_error)
+        
+        # 找出不一致的位置
+        mismatch_mask = relative_error > limit
+        mismatch_indices = np.where(mismatch_mask)[0]
+        # 最多打印10个不一致的位置
+        num_to_show = min(10, len(mismatch_indices))
+
         error_msg = f"验证失败，输出不一致: err_cnt={err_cnt} / {limit_cnt}, dtype={data_type}, limit={limit}\n"
-        error_msg += f"Framework output (first 10): {framework_out_flatten[:10]}\n"
-        error_msg += f"Implementation output (first 10): {impl_out_flatten[:10]}"
+        error_msg += f"最大相对误差: {max_error:.6e}, 平均相对误差: {mean_error:.6e}\n"
+        error_msg += f"前 {num_to_show} 个不一致的值:\n"
+        for i in range(num_to_show):
+            idx = mismatch_indices[i]
+            error_msg += f"  位置[{idx}]: framework={framework_out_flatten[idx]:.6e}, "
+            error_msg += f"impl={impl_out_flatten[idx]:.6e}, "
+            error_msg += f"相对误差={relative_error[idx]:.6e}\n"
+        
         raise AssertionError(error_msg)
 
 def verify_implementations():
@@ -407,7 +422,7 @@ def verify_implementations():
         
         # 加载SWFT输出
         impl_output = load_binary_data(data_dir, framework_output)
-        {% elif dsl in ["triton", "cuda_c", "cpp", "tilelang_npuir"] %}
+        {% elif dsl in ["triton", "cuda_c", "cpp", "tilelang_npuir", "tilelang_cuda"] %}
         # 运行Triton实现
         impl_output = {{ impl_func_name }}(*inputs)
         {% endif %}

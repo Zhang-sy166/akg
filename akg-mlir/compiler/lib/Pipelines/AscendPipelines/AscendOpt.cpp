@@ -55,11 +55,16 @@ void createAscendOptPipelineImpl(OpPassManager &pm, const AscendOptPipelineOptio
   pm.addPass(createLegalizeTypePass());
   pm.addPass(createFoldDimensionPass());
   pm.addPass(createMindSporeToLinalgNamedPass());
-
+  pm.addPass(mlir::createMindSporeToTosaPass());
+  OpPassManager &nestedFunctionPM = pm.nest<func::FuncOp>();
+  nestedFunctionPM.addPass(tosa::createTosaToLinalg());
 
   if (options.enableAKGLoopFusion) {
-    pm.addPass(bufferization::createBufferResultsToOutParamsPass());
+    bool keepFakeOuts = true;
+    nestedFunctionPM.addPass(createLinalgCopyBufferizePass(keepFakeOuts));
+    pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
     pm.addPass(bufferization::createOneShotBufferizePass());
+    pm.addPass(createCanonicalizerPass());
     pm.addPass(createMemrefCopyToLoopsPass());
     pm.addPass(createMatchAndMarkReductionOpsPass());
 
