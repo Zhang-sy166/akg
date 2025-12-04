@@ -15,6 +15,11 @@
 import os
 
 
+def get_device_id(default=0):
+    """统一获取 DEVICE_ID，默认值为 0。"""
+    return int(os.getenv("DEVICE_ID", default))
+
+
 def _raise_submodule_error(path_name, path_value):
     """通用的子模块错误提示函数"""
     error_msg = f"找不到 {path_name}: {path_value}\n"
@@ -35,7 +40,7 @@ def get_op_task_str(op_name):
     return op_task_str
 
 
-def get_kernelbench_task_desc(op_name, framework="torch"):
+def get_kernelbench_task_desc(op_name, framework="torch", level="level1"):
     """获取 KernelBench 任务描述"""
     current_file_path = os.path.abspath(__file__)
     commom_path = os.path.dirname(current_file_path)
@@ -43,10 +48,10 @@ def get_kernelbench_task_desc(op_name, framework="torch"):
 
     if framework == "torch":
         # Path for torch benchmarks from the KernelBench submodule.
-        # The submodule is at `aikg/thirdparty/KernelBench`, and benchmark files are inside `KernelBench/level1/` subdirectory.
+        # The submodule is at `aikg/thirdparty/KernelBench`, and benchmark files are inside `KernelBench/{level}/` subdirectory.
         base_dir = os.path.join(
-            aikg_path, 'thirdparty', 'KernelBench', 'KernelBench', 'level1')
-        # Files are directly in level1 directory with naming pattern: {number}_{name}.py
+            aikg_path, 'thirdparty', 'KernelBench', 'KernelBench', level)
+        # Files are directly in level directory with naming pattern: {number}_{name}.py
         task_path = os.path.join(base_dir, op_name + '.py')
     else:
         # Original path for mindspore and numpy benchmarks
@@ -94,8 +99,14 @@ def get_multikernelbench_task_desc(op_name, framework="torch"):
     _raise_submodule_error(f"MultiKernelBench 中的操作 {op_name}", f"已搜索目录: {base_path}")
 
 
-def get_aikgbench_task_desc(op_name, framework="torch"):
-    """获取 AIKGBench 任务描述"""
+def get_aikgbench_task_desc(op_name, category=None, framework="torch"):
+    """获取 AIKGBench 任务描述
+    
+    Args:
+        op_name: 算子名称
+        framework: 框架名称，默认为 "torch"
+        category: 类别名称，可选值：'dynamic' 或 'static'，如果不指定则搜索所有类别
+    """
     current_file_path = os.path.abspath(__file__)
     commom_path = os.path.dirname(current_file_path)
     aikg_path = os.path.dirname(commom_path)
@@ -107,24 +118,38 @@ def get_aikgbench_task_desc(op_name, framework="torch"):
     if not os.path.exists(base_path):
         _raise_submodule_error("AIKGBench 目录", base_path)
 
-    # Find the file in any category and subcategory
-    for category in os.listdir(base_path):
-        category_path = os.path.join(base_path, category)
-        if os.path.isdir(category_path):
-            # 遍历子分类 (attention, elemwise, fused, etc.)
-            for subcategory in os.listdir(category_path):
-                subcategory_path = os.path.join(category_path, subcategory)
-                if os.path.isdir(subcategory_path):
-                    task_path = os.path.join(subcategory_path, op_name + '.py')
-                    if os.path.exists(task_path):
-                        with open(task_path, "r", encoding="utf-8") as f:
-                            return f.read()
+    # 确定要搜索的类别列表
+    if category:
+        if category not in ['dynamic', 'static']:
+            raise ValueError(f"无效的类别参数: {category}，有效值为 'dynamic' 或 'static'")
+        categories = [f"{category}_shape"]
+    else:
+        # 搜索所有类别
+        categories = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
 
-    # If not found in any category, raise an error
-    _raise_submodule_error(f"AIKGBench 中的操作 {op_name}", f"已搜索目录: {base_path}")
+    # 搜索文件
+    for category_dir in categories:
+        category_path = os.path.join(base_path, category_dir)
+        if not os.path.exists(category_path):
+            continue
+            
+        # 遍历子分类
+        for subcategory in os.listdir(category_path):
+            subcategory_path = os.path.join(category_path, subcategory)
+            if os.path.isdir(subcategory_path):
+                task_path = os.path.join(subcategory_path, op_name + '.py')
+                if os.path.exists(task_path):
+                    with open(task_path, "r", encoding="utf-8") as f:
+                        return f.read()
+
+    # 如果未找到，抛出错误
+    if category:
+        _raise_submodule_error(f"AIKGBench 类别 {categories[0]} 中的操作 {op_name}", f"已搜索目录: {os.path.join(base_path, categories[0])}")
+    else:
+        _raise_submodule_error(f"AIKGBench 中的操作 {op_name}", f"已搜索目录: {base_path}")
 
 
-def get_kernelbench_op_name(task_index_list, framework="torch"):
+def get_kernelbench_op_name(task_index_list, framework="torch", level="level1"):
     """获取 KernelBench 操作名称列表"""
     if task_index_list is None:
         return None
@@ -135,7 +160,7 @@ def get_kernelbench_op_name(task_index_list, framework="torch"):
 
     if framework == "torch":
         task_path = os.path.join(
-            aikg_path, 'thirdparty', 'KernelBench', 'KernelBench', 'level1')
+            aikg_path, 'thirdparty', 'KernelBench', 'KernelBench', level)
         # PyTorch: 直接查找文件
         task_prefix_list = [f"{task_index}_" for task_index in task_index_list]
         matched_files = []
@@ -343,7 +368,7 @@ def generate_beautiful_test_report(results, config, framework, dsl, backend, arc
         results: task_pool.wait_all() 返回的结果列表，格式为 [(op_name, result, _), ...]
         config: 配置字典，需要包含 'log_dir' 键
         framework: 框架名称 (如 "torch", "mindspore")
-        dsl: DSL名称 (如 "triton", "tvm")
+        dsl: DSL名称 (如 "triton_cuda", "triton_ascend", "swft", "tvm")
         backend: 后端名称 (如 "cuda", "ascend")
         arch: 架构名称 (如 "a100", "910b")
         save_to_file: 是否保存结果到文件
@@ -402,8 +427,8 @@ def generate_beautiful_test_report(results, config, framework, dsl, backend, arc
     print('=' * 80)
     print(f"📊 总体统计:")
     print(f"   • 测试算子总数: {len(op_stats)}")
-    print(f"   • 通过算子数量: {len(passed_ops)} ✅")
-    print(f"   • 失败算子数量: {len(failed_ops)} ❌")
+    print(f"   • 通过算子数量: {len(passed_ops)} ")
+    print(f"   • 失败算子数量: {len(failed_ops)} ")
     print(f"   • 算子通过率: {len(passed_ops)/len(op_stats)*100:.1f}%")
     print('-' * 80)
 

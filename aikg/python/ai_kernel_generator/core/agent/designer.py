@@ -31,7 +31,18 @@ def get_inspirations(inspirations: List[dict]) -> str:
 
     Args:
         inspirations: 包含字典的列表，每个字典格式为:
-                     {'strategy_mode':xxx, 'impl_code':str, 'profile':float, 'is_parent':bool}
+            {
+                'strategy_mode': str,
+                'impl_code': str,
+                'sketch': str,
+                'profile': {
+                    'gen_time': float,
+                    'base_time': float,
+                    'speedup': float,
+                    'autotune_summary': str (可选，仅triton+ascend)
+                },
+                'is_parent': bool
+            }
 
     Returns:
         str: 拼接后的字符串，包含所有impl_code和profile信息
@@ -49,7 +60,7 @@ def get_inspirations(inspirations: List[dict]) -> str:
 
         sketch = inspiration.get('sketch', '')
         impl_code = inspiration.get('impl_code', '')
-        profile = inspiration.get('profile', float('inf'))
+        profile = inspiration.get('profile', {})
         is_parent = inspiration.get('is_parent', False)
         
         # 检测是否有父代
@@ -57,14 +68,19 @@ def get_inspirations(inspirations: List[dict]) -> str:
             has_parent = True
 
         if sketch or impl_code:  # 只有当sketch或impl_code不为空时才添加
-            # 处理profile信息，支持三元组格式
-            if isinstance(profile, (list, tuple)) and len(profile) >= 3:
-                gen_time, base_time, speedup = profile[0], profile[1], profile[2]
+            # 处理profile信息（dict格式）
+            gen_time = profile.get('gen_time', float('inf'))
+            base_time = profile.get('base_time', 0.0)
+            speedup = profile.get('speedup', 0.0)
+            autotune_summary = profile.get('autotune_summary', '')
+            
+            if gen_time != float('inf'):
                 profile_text = f"根据此方案草图生成的代码计算耗时: {gen_time:.4f}us, 基准代码耗时: {base_time:.4f}us, 加速比: {speedup:.2f}x"
-            elif isinstance(profile, (list, tuple)) and len(profile) >= 1:
-                profile_text = f"代码执行耗时: {profile[0]:.4f}us"
+                # 如果有autotune信息，添加到profile_text
+                if autotune_summary:
+                    profile_text += f"\n\nAutotune配置详情:\n{autotune_summary}"
             else:
-                profile_text = f"代码执行耗时: {profile:.4f}us" if profile != float('inf') else "代码执行耗时: N/A"
+                profile_text = "代码执行耗时: N/A"
 
             # 如果是父代，添加标记
             parent_mark = " 【父代方案】" if is_parent else ""
@@ -96,7 +112,8 @@ class Designer(AgentBase):
         dsl: str = "",
         backend: str = "",
         arch: str = "",
-        workflow_config_path: str = None,
+        workflow_config_path: str = None,  # 已废弃，保留用于向后兼容
+        parser_config_path: str = None,     # 新的 parser 配置路径
         config: dict = None,
     ):
         self.op_name = op_name
@@ -104,7 +121,8 @@ class Designer(AgentBase):
         self.dsl = dsl
         self.arch = arch
         self.backend = backend
-        self.workflow_config_path = workflow_config_path
+        self.workflow_config_path = workflow_config_path  # 保留用于向后兼容
+        self.parser_config_path = parser_config_path  # 新的配置路径
         self.config = config
         self.llm_step_count = 0
 
@@ -124,11 +142,12 @@ class Designer(AgentBase):
         }
         super().__init__(context=context, config=config)
 
-        # 直接使用从workflow.yaml获取的designer解析器
-        self.code_parser = create_step_parser("designer", self.workflow_config_path)
+        # 使用新的 parser loader（不依赖 workflow.yaml）
+        from ai_kernel_generator.utils.parser_loader import create_agent_parser
+        self.code_parser = create_agent_parser("designer", self.parser_config_path)
         if not self.code_parser:
             raise ValueError(
-                "Failed to create designer parser from workflow config. Please check your workflow.yaml configuration."
+                "Failed to create designer parser. Please check your parser_config.yaml configuration."
             )
         self.format_instructions = self.code_parser.get_format_instructions()
 
@@ -167,6 +186,35 @@ class Designer(AgentBase):
         """
         # 从task_info中获取conductor的建议
         conductor_suggestion = task_info.get("conductor_suggestion", "")
+        
+        # 通过task_id判断是否是evolve场景以及轮次
+        # evolve场景的task_id格式: "{round_idx}_{island_idx}_{pid}" 或 "{round_idx}_{pid}"
+        # 非evolve场景的task_id格式: 任意字符串（如"0", "test_task"等）
+        task_id = task_info.get("task_id", "")
+        evolve_first_round = False  # 默认不显示available_tiling
+        
+        if "_" in task_id:
+            # 可能是evolve场景，尝试解析第一个数字作为round_idx
+            try:
+                round_idx = int(task_id.split("_")[0])
+                # 如果round_idx > 1，说明是第二轮及以后，显示available_tiling
+                if round_idx > 1:
+                    evolve_first_round = True
+            except (ValueError, IndexError):
+                # 不是evolve场景的task_id格式，保持默认值False
+                pass
+        
+        # ============ Hint模式检测 ============
+        enable_hint_mode = self.config.get("enable_hint_mode", False)
+        has_hint = False
+        
+        if enable_hint_mode:
+            # 检测task_desc中是否有@hint
+            has_hint = 'hint' in self.base_doc["task_desc"].lower()
+            
+            if has_hint:
+                task_id = task_info.get('task_id', '0')
+                logger.info(f"[Task {task_id}] 检测到hint，启用Hint模式")
 
         # 基于aul_base_doc构建输入，只更新变化的部分
         input_data = {
@@ -174,6 +222,11 @@ class Designer(AgentBase):
             "llm_suggestions": conductor_suggestion,  # Conductor建议
             "inspirations": get_inspirations(task_info.get('inspirations', [])),
             "meta_prompts": task_info.get("meta_prompts", ""),
+            "handwrite_suggestions": task_info.get("handwrite_suggestions", []),
+            "evolve_first_round": evolve_first_round,  # 控制是否显示available_tiling
+            "enable_llm_range_inference": self.config.get("enable_llm_range_inference", False),  # LLM推理模式
+            "enable_hint_mode": enable_hint_mode,  # Hint模式
+            "has_hint": has_hint,  # 是否检测到hint
         }
 
         # 执行LLM生成前更新context，确保正确性
@@ -189,6 +242,39 @@ class Designer(AgentBase):
         self.context.update(to_update_context)
 
         # 执行LLM生成
-        return await self.run_llm(
+        # run_llm返回: (生成内容, 格式化提示词, 推理内容)
+        llm_result, formatted_prompt, llm_reasoning = await self.run_llm(
             self.designer_prompt, input_data, self.model_config["designer"]
         )
+        
+        # ============ 处理Hint模式的输出 ============
+        if enable_hint_mode and has_hint:
+            import json
+            try:
+                # 解析JSON格式的生成内容
+                result_dict = json.loads(llm_result)
+                sketch = result_dict.get("sketch", "")
+                reasoning = result_dict.get("reasoning", llm_reasoning)
+                
+                # 如果有space_config，保存到task_info（用于MultiCaseGenerator采样）
+                result_for_return = {"code": sketch}
+                if "space_config" in result_dict:
+                    space_config_code = result_dict["space_config"]
+                    task_info["space_config_code"] = space_config_code
+                    result_for_return["space_config_code"] = space_config_code  # 也返回给 LangGraph
+                    task_id = task_info.get('task_id', '0')
+                    logger.info(f"[Task {task_id}] Designer生成了参数空间配置")
+                
+                # 转换为标准格式（支持 parser_config.yaml 定义：code + 可选的 space_config_code）
+                # 将{"sketch": "...", "space_config": "...", "reasoning": "..."} 转换为 {"code": "...", "space_config_code": "..."}
+                standard_result = json.dumps(result_for_return, ensure_ascii=False)
+                
+                # 返回: (标准格式的JSON字符串, 格式化提示词, 推理内容)
+                return standard_result, formatted_prompt, reasoning
+            except json.JSONDecodeError as e:
+                # 如果解析失败，按原有流程返回
+                logger.warning(f"[{self.op_name}] Hint模式下JSON解析失败: {e}，使用原始输出")
+                return llm_result, formatted_prompt, llm_reasoning
+        
+        # 非Hint模式，直接返回run_llm的结果
+        return llm_result, formatted_prompt, llm_reasoning

@@ -254,6 +254,7 @@ vllm_deepseek_v31_thinking_default:
   top_p: 0.7
   frequency_penalty: 0.6
   presence_penalty: 0.5
+  thinking_mode: "true"
 
 
 vllm_deepseek_v31_default:
@@ -308,6 +309,134 @@ moonshot_kimi_128k:
   top_p: 1.0
   frequency_penalty: 0.0
   presence_penalty: 0.0
+
+# OpenRouter 模型配置
+openrouter_minimax_m2_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "minimax/minimax-m2:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_deepseek_v31_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "deepseek/deepseek-chat-v3.1:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_gpt_oss_20b_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "openai/gpt-oss-20b:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_glm_45_air_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "z-ai/glm-4.5-air:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_kimi_k2_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "moonshotai/kimi-k2:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_deepseek_r1_0528_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "deepseek/deepseek-r1-0528:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_qwen3_235b_a22b_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "qwen/qwen3-235b-a22b:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+openrouter_deepseek_v3_0324_free:
+  api_base: "https://openrouter.ai/api/v1"
+  model: "deepseek/deepseek-chat-v3-0324:free"
+  api_key_env: "AIKG_OPENROUTER_API_KEY"
+  max_tokens: 16384
+  temperature: 0.6
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+zhipu_glm_46_default:
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+  model: "glm-4.6"
+  api_key_env: "AIKG_ZHIPU_API_KEY"
+  max_tokens: 65536
+  temperature: 0.2
+  top_p: 0.9
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  thinking_mode: "disabled"
+
+
+zhipu_glm_46_thinking_default:
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+  model: "glm-4.6"
+  api_key_env: "AIKG_ZHIPU_API_KEY"
+  max_tokens: 65536
+  temperature: 0.2
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+  thinking_mode: "enabled"
+
+
+zhipu_glm_45_default:
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+  model: "glm-4.5"
+  api_key_env: "AIKG_ZHIPU_API_KEY"
+  max_tokens: 65536
+  temperature: 0.2
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+
+
+zhipu_glm_45_air_thinking_default:
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+  model: "glm-4.5-air"
+  api_key_env: "AIKG_ZHIPU_API_KEY"
+  max_tokens: 65536
+  temperature: 0.2
+  top_p: 0.9
+  frequency_penalty: 0.5
+  presence_penalty: 0.5
+  thinking_mode: "enabled"
+
 
 # 默认配置名称
 default_preset: "sflow_ds_r1_default" 

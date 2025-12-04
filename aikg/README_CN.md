@@ -31,6 +31,7 @@
   - [📐 6. 设计文档](#-6-设计文档)
     - [核心框架](#核心框架)
     - [核心组件](#核心组件)
+    - [服务化架构](#服务化架构)
     - [后端支持](#后端支持)
 
 </details>
@@ -41,6 +42,8 @@ AIKG 利用大语言模型(LLM)的代码生成能力，通过大语言模型规�
 同时 AIKG 提供丰富的算子Agent相关子模块，用户可组合构建自定义算子Agents任务。
 
 ## 🗓️ 2. 更新日志
+- 2025-12-01：引入 LangGraph 重构任务调度系统，新增 `LangGraphTask` 替代原 `Conductor + workflow.yaml` 架构。支持 Python 定义工作流、图结构可视化、类型安全状态管理，API 完全兼容原 `Task`。详见《[LangGraph 文档](./docs/CN/LangGraph.md)》。
+- 2025-11-25：支持服务化架构，新增统一的 `register_worker()` 便捷函数（原 `register_local_worker` / `register_remote_worker` 仍可使用）。在调用 `evolve` 前务必先注册 Worker，可通过 `AIKG_WORKER_URL` 配置远程 Worker 或传入本地设备列表。详见《[服务化架构文档](./docs/CN/ServerArchitecture.md)》。
 - 2025-10-14：支持 TileLang_CUDA后端代码生成能力。KernelBench Level1 的 TileLang_CUDA后端算子生成成功率结果详见《[基准测试结果](./docs/CN/DSLBenchmarkResults202509.md)》。
 - 2025-09-26：支持 CUDA C 与 CPP 后端代码生成能力。KernelBench Level1 的 CUDA C 与 CPP 后端算子生成成功率结果详见《[基准测试结果](./docs/CN/DSLBenchmarkResults202509.md)》。
 - 2025-09-14：KernelBench Level1 算子生成成功率更新，详见《[基准测试结果](./docs/CN/BenchmarkResults202509.md)》。
@@ -89,11 +92,10 @@ export AIKG_XXX_API_KEY=xxx
 # VLLM (https://github.com/vllm-project/vllm)
 export AIKG_VLLM_API_BASE=http://localhost:8000/v1
 
-# Ollama (https://ollama.com/)
-export AIKG_OLLAMA_API_BASE=http://localhost:11434
+...
 ```
 更多配置选项：
-- **任务编排方案配置（Task Orchestration Plan Configuration）**: 声明一次任务的完整运行方案（包含 `agent_model_config`、`workflow_config_path`、`docs_dir` 等）。常见方案文件：`default_triton_config.yaml`、`vllm_triton_coderonly_config.yaml`。详见《[任务编排方案配置](./docs/CN/TaskOrchestrationPlan.md)》。
+- **任务编排方案配置（Task Orchestration Plan Configuration）**: 声明一次任务的完整运行方案（包含 `agent_model_config`、`workflow_config_path`、`docs_dir` 等）。常见方案文件：`default_triton_cuda_config.yaml`、`default_triton_ascend_config.yaml`、`vllm_triton_cuda_coderonly_config.yaml`、`vllm_triton_ascend_coderonly_config.yaml`。详见《[任务编排方案配置](./docs/CN/TaskOrchestrationPlan.md)》。
 - **模型配置**: `llm_config.yaml` 中预设了多种 LLM 服务商的模型配置（DeepSeek、Qwen、Moonshot 等）。编排配置中的 `agent_model_config` 取值来源于该文件的预设名称。
 - **工作流定义（Workflow）**: 通过 `workflow_config_path` 指定工作流 YAML，定义 Agent 执行顺序与约束，支持 `default_workflow.yaml`、`coder_only_workflow.yaml` 等。详见《[工作流系统设计文档](./docs/CN/Workflow.md)》。
 - **文档驱动式接入（Doc-Driven Integration）**: 通过编排配置的 `docs_dir` 为各 Agent 提供参考文档目录。详见《[文档驱动式接入指南](./docs/CN/DocDrivenIntegration.md)》。
@@ -173,6 +175,9 @@ bash download.sh --with_local_model
 - **[Coder](./docs/CN/Coder.md)** - 代码生成器
 - **[Verifier](./docs/CN/Verifier.md)** - 验证器
 - **[Conductor](./docs/CN/Conductor.md)** - 任务编排器
+
+### 服务化架构
+- **[Server Architecture](./docs/CN/ServerArchitecture.md)** - 服务化架构文档，包含 Client-Server-Worker 架构、WorkerManager 负载均衡、便捷函数使用等
 
 ### 后端支持
 - **[SWFT Backend](./docs/CN/SWFT.md)** - 华为Atlas推理系列后端

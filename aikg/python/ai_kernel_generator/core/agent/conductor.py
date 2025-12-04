@@ -102,6 +102,9 @@ class Conductor(AgentBase):
         self.trace = Trace(self.op_name, self.task_id, self.log_dir)
 
         self.task_info = {}
+        
+        # 维护最近5次的历史记录
+        self.history_attempts = []
 
     def set_task_info(self, base_doc: Dict[str, Any] = None):
         """设置任务信息和基础文档"""
@@ -131,7 +134,7 @@ class Conductor(AgentBase):
         return ResultProcessor.get_agent_parser(agent_name, self.workflow_config_path, self.agent_parsers)
 
     def record_agent_execution(self, agent_name: str, result: str, prompt: str = "", reasoning: str = "",
-                               error_log: str = "", profile_res=()) -> bool:
+                               error_log: str = "", profile_res: dict = None) -> bool:
         """
         记录agent执行结果，进行解析并更新任务信息
 
@@ -141,7 +144,11 @@ class Conductor(AgentBase):
             prompt: 使用的prompt
             reasoning: 推理过程
             error_log: 错误日志（主要用于verifier）
-            profile_res: 性能分析结果（主要用于verifier）
+            profile_res: 性能分析结果字典（主要用于verifier），包含：
+                - gen_time: 生成代码执行时间（微秒）
+                - base_time: 基准代码执行时间（微秒）
+                - speedup: 加速比
+                - autotune_summary: autotune配置详情（可选，仅triton+ascend）
 
         Returns:
             bool: 解析是否成功（对于不需要解析器的agent返回True）
@@ -177,6 +184,36 @@ class Conductor(AgentBase):
         # 记录最新的解析状态
         self.last_parse_success = parse_success
         return parse_success
+    
+    def _update_history_after_analysis(self):
+        """
+        在Conductor分析后更新历史记录
+        此时可以准确收集：当前代码 + 当前错误 + 针对当前错误的建议
+        存储完整记录，插入模板时再截断
+        """
+        try:
+            # 获取当前的coder代码、错误和刚生成的建议
+            current_code = self.task_info.get('coder_code', '')
+            current_error = self.task_info.get('verifier_error', '')
+            current_suggestion = self.task_info.get('conductor_suggestion', '')
+            
+            if current_code and current_error:
+                history_entry = {
+                    'code': current_code,
+                    'error': current_error,
+                    'suggestion': current_suggestion if current_suggestion else '',
+                    'task_desc': self.task_desc
+                }
+                
+                self.history_attempts.append(history_entry)
+                
+                # 保持最多5条记录
+                if len(self.history_attempts) > 5:
+                    self.history_attempts.pop(0)
+                    
+                logger.debug(f"Updated history after analysis, now has {len(self.history_attempts)} entries")
+        except Exception as e:
+            logger.warning(f"Failed to update history: {e}")
 
     def get_illegal_agent(self) -> Set[str]:
         """获取违禁操作的agent集合"""
@@ -245,6 +282,14 @@ class Conductor(AgentBase):
             # 获取错误日志（如果有）
             error_log = self.task_info.get('verifier_error', '')
 
+            # 准备历史记录用于模板（只包含code和suggestion，并截断）
+            history_for_analysis = []
+            for attempt in self.history_attempts:
+                history_for_analysis.append({
+                    'code': attempt['code'][:2000],
+                    'suggestion': attempt['suggestion'][:500]
+                })
+
             # 构建输入数据（匹配analyze.j2模板）
             input_data = {
                 'dsl': self.dsl,
@@ -255,6 +300,7 @@ class Conductor(AgentBase):
                 'agent_name': current_agent,
                 'agent_result': agent_result,
                 'error_log': error_log[:5000] if error_log else None,
+                'history_attempts': history_for_analysis,
                 'valid_next_agents': ', '.join(sorted(valid_next_agents)),
                 'format_instructions': format_instructions,
             }
@@ -292,6 +338,10 @@ class Conductor(AgentBase):
                 # 保存suggestion到task_info用于传递给下一个agent
                 if suggestion:
                     self.task_info['conductor_suggestion'] = suggestion
+                
+                # 在Conductor分析后更新历史记录
+                self._update_history_after_analysis()
+                
                 return agent_decision
 
         except Exception as e:

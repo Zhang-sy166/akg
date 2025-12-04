@@ -2,18 +2,27 @@ import os
 import pytest
 from pathlib import Path
 from collections import defaultdict
-from ai_kernel_generator.core.task import Task
 from ai_kernel_generator.core.async_pool.task_pool import TaskPool
-from ai_kernel_generator.core.async_pool.device_pool import DevicePool
+
+# 自动选择 Task 实现：优先使用 LangGraphTask，否则使用原 Task
+try:
+    import langgraph
+    from ai_kernel_generator.core.langgraph_task import LangGraphTask as AIKGTask
+    _USE_LANGGRAPH = True
+except ImportError:
+    from ai_kernel_generator.core.task import Task as AIKGTask
+    _USE_LANGGRAPH = False
+from ai_kernel_generator.core.worker.manager import register_local_worker
 from ..utils import (
     get_kernelbench_op_name, get_multikernelbench_op_name,
     get_kernelbench_task_desc, get_multikernelbench_task_desc, add_op_prefix,
-    generate_beautiful_test_report
+    generate_beautiful_test_report, get_device_id
 )
 from ai_kernel_generator.config.config_validator import load_config
 from ai_kernel_generator.utils.environment_check import check_env_for_task
 
 os.environ['AIKG_DATA_COLLECT'] = 'on'
+device_id = get_device_id()
 
 
 @pytest.mark.level2
@@ -32,11 +41,14 @@ async def test_kernelbench_torch_cpu_x86_64():
     benchmark = "KernelBench"
 
     task_pool = TaskPool()
-    device_pool = DevicePool([1])
+    # device_pool = DevicePool([device_id])  # 旧写法
     # or load_config("/your-path-to-config/xxx_config.yaml")
     config = load_config(config_path="./python/ai_kernel_generator/config/vllm_cpp_coderonly_config.yaml")
 
     check_env_for_task(framework, backend, dsl, config)
+
+    # 新写法：注册 LocalWorker
+    await register_local_worker([device_id], backend=backend, arch=arch)
 
     # KernelBench: 按序号读取
     benchmark_name = get_kernelbench_op_name(
@@ -50,7 +62,7 @@ async def test_kernelbench_torch_cpu_x86_64():
             benchmark_name[i], framework=framework)
         op_name = add_op_prefix(benchmark_name[i], benchmark=benchmark)
 
-        task = Task(
+        task = AIKGTask(
             op_name=op_name,
             task_desc=task_desc,
             task_id=str(i),
@@ -58,7 +70,6 @@ async def test_kernelbench_torch_cpu_x86_64():
             arch=arch,
             dsl=dsl,
             config=config,
-            device_pool=device_pool,
             framework=framework,
             workflow="coder_only_workflow"
         )
@@ -87,11 +98,14 @@ async def test_kernelbench_torch_cpu_aarch64():
     benchmark = "KernelBench"
 
     task_pool = TaskPool()
-    device_pool = DevicePool([1])
+    # device_pool = DevicePool([device_id])  # 旧写法
     # or load_config("/your-path-to-config/xxx_config.yaml")
     config = load_config(config_path="./python/ai_kernel_generator/config/vllm_cpp_coderonly_config.yaml")
 
     check_env_for_task(framework, backend, dsl, config)
+
+    # 新写法：注册 LocalWorker
+    await register_local_worker([device_id], backend=backend, arch=arch)
 
     # KernelBench: 按序号读取
     benchmark_name = get_kernelbench_op_name(
@@ -105,7 +119,7 @@ async def test_kernelbench_torch_cpu_aarch64():
             benchmark_name[i], framework=framework)
         op_name = add_op_prefix(benchmark_name[i], benchmark=benchmark)
 
-        task = Task(
+        task = AIKGTask(
             op_name=op_name,
             task_desc=task_desc,
             task_id=str(i),
@@ -113,7 +127,6 @@ async def test_kernelbench_torch_cpu_aarch64():
             arch=arch,
             dsl=dsl,
             config=config,
-            device_pool=device_pool,
             framework=framework,
             workflow="coder_only_workflow"
         )

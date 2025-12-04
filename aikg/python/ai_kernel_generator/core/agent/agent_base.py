@@ -17,9 +17,76 @@ import logging
 from abc import ABC
 from typing import Dict, Any
 
-from langchain.prompts import PromptTemplate
+try:
+    from openai import AsyncOpenAI as OpenAIAsyncClient
+except ImportError:
+    OpenAIAsyncClient = None
+
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    # Fallback for older langchain versions
+    from langchain.prompts import PromptTemplate
+
+# 使用原生 Jinja2
+# LangChain 1.0 的 PromptTemplate 使用 SandboxedEnvironment，限制了属性访问
+from jinja2 import Environment, BaseLoader
 
 from ai_kernel_generator import get_project_root
+
+
+class Jinja2TemplateWrapper:
+    """
+    原生 Jinja2 模板包装器，兼容 LangChain PromptTemplate 接口
+    
+    LangChain 1.0 的 PromptTemplate 使用 SandboxedEnvironment，
+    限制了对 loop.index 等属性的访问。此包装器使用原生 Jinja2，
+    支持完整的 Jinja2 功能。
+    """
+    
+    def __init__(self, template_str: str):
+        """
+        初始化 Jinja2 模板包装器
+        
+        Args:
+            template_str: 模板字符串
+        """
+        self._template_str = template_str
+        self._env = Environment(loader=BaseLoader())
+        self._template = self._env.from_string(template_str)
+    
+    def format(self, **kwargs) -> str:
+        """
+        渲染模板（兼容 PromptTemplate.format 接口）
+        
+        Args:
+            **kwargs: 模板变量
+            
+        Returns:
+            渲染后的字符串
+        """
+        return self._template.render(**kwargs)
+    
+    def __or__(self, other):
+        """
+        支持 prompt | model 链式调用（LangChain 风格）
+        
+        Args:
+            other: 链中的下一个组件（通常是 LLM）
+            
+        Returns:
+            RunnableSequence 或类似对象
+        """
+        # 创建一个可运行的序列
+        from langchain_core.runnables import RunnableLambda
+        
+        def render_template(inputs: dict) -> str:
+            return self.format(**inputs)
+        
+        runnable = RunnableLambda(render_template)
+        return runnable | other
+
+
 from ai_kernel_generator.core.llm.model_loader import create_model
 from ai_kernel_generator.utils.common_utils import get_prompt_path
 from ai_kernel_generator.utils.collector import get_collector
@@ -114,9 +181,10 @@ class AgentBase(ABC):
 
         Args:
             template_path (str): 模板文件的相对路径，相对于prompts目录
+            template_format (str): 模板格式，默认为 "jinja2"
 
         Returns:
-            PromptTemplate: 加载的模板对象
+            PromptTemplate: 加载的模板对象（对于 jinja2 格式返回原生 Jinja2Template 包装器）
 
         Raises:
             FileNotFoundError: 模板文件不存在时抛出异常
@@ -125,11 +193,18 @@ class AgentBase(ABC):
             prompt_dir = get_prompt_path()
             template_full_path = os.path.join(prompt_dir, template_path)
             template_str = self.read_file(template_full_path)
-            prompt_template = PromptTemplate(
-                template=template_str,
-                template_format=template_format
-            )
-            return prompt_template
+            
+            if template_format == "jinja2":
+                # 使用原生 Jinja2（支持完整功能，包括 loop.index）
+                # LangChain 1.0 的 PromptTemplate 使用 SandboxedEnvironment，限制了属性访问
+                return Jinja2TemplateWrapper(template_str)
+            else:
+                # 其他格式使用 LangChain 的 PromptTemplate
+                prompt_template = PromptTemplate(
+                    template=template_str,
+                    template_format=template_format
+                )
+                return prompt_template
         except Exception as e:
             raise ValueError(f"Failed to load template {template_path}: {e}")
 
@@ -157,6 +232,8 @@ class AgentBase(ABC):
             if not os.path.exists(full_path):
                 logger.warning(f"Resource doc not found: {full_path}")
                 return ""
+
+            logger.info(f"Loading resource doc: {full_path}")
 
             with open(full_path, 'r', encoding='utf-8') as f:
                 return f.read()
@@ -225,7 +302,7 @@ class AgentBase(ABC):
         logger.debug("=" * 60)
 
         if not input:
-            logger.debug("❌ input 字典为空!")
+            logger.debug("input 字典为空!")
             return
 
         for key, value in input.items():
@@ -239,7 +316,7 @@ class AgentBase(ABC):
                 is_empty = True
 
             # 记录状态
-            status = "❌ 空" if is_empty else "✅ 有值"
+            status = "空" if is_empty else "有值"
             value_preview = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
             logger.debug(f"{status} {key}: {value_preview}")
 
@@ -261,26 +338,28 @@ class AgentBase(ABC):
         # self.count_tokens(formatted_prompt, model_name, self.context) # 暂不开启token统计
         # 创建模型
         model = create_model(model_name)
+        effective_model_name = getattr(model, "model_name", model_name)
+        is_openai_async_client = OpenAIAsyncClient is not None and isinstance(model, OpenAIAsyncClient)
 
         try:
             # 如果是VLLM模型（openai.AsyncOpenAI客户端）
-            if model_name.startswith("vllm_"):
+            if effective_model_name.startswith("vllm_") or is_openai_async_client:
                 # 将formatted_prompt转换为OpenAI格式的消息
                 messages = [
                     {"role": "system", "content": ""},  # 空的system prompt
                     {"role": "user", "content": formatted_prompt}
                 ]
 
-                # 统一构造调用参数与 thinking 配置
-                is_thinking = "thinking" in model_name.lower()
+                # 统一构造调用参数，可通过模型实例上的 extra_body 配置 thinking
                 create_kwargs = {
                     "model": model.model_name,
                     "messages": messages,
                     "temperature": model.temperature,
                     "top_p": model.top_p,
                 }
-                if is_thinking:
-                    create_kwargs["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
+                extra_body = getattr(model, "extra_body", None)
+                if extra_body:
+                    create_kwargs["extra_body"] = extra_body
 
                 if not aikg_stream_output:
                     # 非流式模式
@@ -288,7 +367,7 @@ class AgentBase(ABC):
                     response = await model.chat.completions.create(**create_kwargs)
 
                     content = response.choices[0].message.content
-                    reasoning_content = response.choices[0].message.reasoning_content
+                    reasoning_content = getattr(response.choices[0].message, 'reasoning_content', "")
 
                     response_metadata = f"completion_tokens: {response.usage.completion_tokens}, " + \
                         f"prompt_tokens: {response.usage.prompt_tokens}, total_tokens: {response.usage.total_tokens}"
@@ -336,7 +415,7 @@ class AgentBase(ABC):
                 logger.info(response_metadata)
 
             logger.debug(f"LLM End:    [status] %s -- [model] %s",
-                         self.context.get('agent_name', ''), model_name)
+                         self.context.get('agent_name', ''), effective_model_name)
 
             # 后处理：从 content 中剥离可能包含的 reasoning 片段
             content, extracted_reasoning = self.split_think(content)
@@ -357,7 +436,7 @@ class AgentBase(ABC):
                         "framework": self.context.get('framework', ''),
                         "workflow_name": self.context.get('workflow_name', ''),
                         "task_desc": self.context.get('task_desc', ''),
-                        "model_name": model_name,
+                        "model_name": effective_model_name,
                         "content": content,
                         "formatted_prompt": formatted_prompt,
                         "reasoning_content": reasoning_content,
@@ -370,6 +449,6 @@ class AgentBase(ABC):
             return content, formatted_prompt, reasoning_content
         except Exception as e:
             logger.error(f"LLM Failed: [status] %s -- [model] %s -- [error] %s",
-                         self.context.get('agent_name', ''), model_name, e)
+                         self.context.get('agent_name', ''), effective_model_name, e)
             logger.error(f"Exception in run_llm: {type(e).__name__}: {e}")
             raise

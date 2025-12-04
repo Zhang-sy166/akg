@@ -24,7 +24,11 @@ import hashlib
 from pathlib import Path
 from dataclasses import dataclass
 from pydantic import create_model as create_pydantic_model
-from langchain.output_parsers import PydanticOutputParser
+try:
+    from langchain_core.output_parsers import PydanticOutputParser
+except ImportError:
+    # Fallback for older langchain versions
+    from langchain.output_parsers import PydanticOutputParser
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,7 @@ class ParserFactory:
     _api_parser = None
     _sketch_parser = None
     _conductor_parser = None
+    _selector_parser = None
 
     @classmethod
     def register_parser(cls, parser_name: str, parser_config: dict):
@@ -237,6 +242,18 @@ class ParserFactory:
                 }
             )
         return cls._sketch_parser
+    
+    @classmethod
+    def get_selector_parser(cls):
+        """获取Selector解析器"""
+        if cls._selector_parser is None:
+            cls._selector_parser = cls.create_output_parser(
+                "SelectorBlock",
+                {
+                    'selected_names': (list[str], ...)
+                }
+            )
+        return cls._selector_parser
 
     @classmethod
     def get_conductor_parser(cls):
@@ -246,7 +263,7 @@ class ParserFactory:
                 "ConductorDecision",
                 {
                     'decision': (str, ...),  # 下一个要执行的agent名称
-                    'suggestion': (str, "")  # 给下一个agent的建议或指导信息
+                    'error_and_suggestion': (str, "")  # 总结报错信息，并给出下一个agent的建议或指导信息
                 }
             )
         return cls._conductor_parser

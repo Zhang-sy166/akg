@@ -17,14 +17,14 @@
 #include "akg/Dialect/Affine/Analysis/TilingStrategy.h"
 
 #include <algorithm>
-#include <iostream>
-#include <unordered_map>
-#include <vector>
+#include <numeric>
 #include "akg/Utils/AKGGlobalVars.hpp"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir {
 namespace akg {
 namespace autotiling {
+using llvm::SmallVector;
 using akg::utils::GpuInfo;
 using akg::utils::StrategyHelper;
 
@@ -40,16 +40,16 @@ bool TilingStrategy::IsRelevant(const AxisPtr &a, const InitGraphPtr graph) {
 }
 
 bool TilingStrategy::IsRelevant(const AxisPtr &a, const InitGraphPtr graph, std::unordered_set<std::string> ops) {
-  if (!ops.empty()) {
-    for (auto node : graph->nodes()) {
-      for (auto dim : node->loopNest()) {
-        if (dim == a && ops.find(node->opType) != ops.end()) {
-          return true;
-        }
-      }
-    }
+  if (ops.empty()) {
+    return false;
   }
-  return false;
+  return std::any_of(graph->nodes().begin(), graph->nodes().end(), [&](const NodePtr &node) {
+    if (ops.find(node->opType) == ops.end()) {
+      return false;
+    }
+    const auto &loopNest = node->loopNest();
+    return std::find(loopNest.begin(), loopNest.end(), a) != loopNest.end();
+  });
 }
 
 void RepositoryStrategy::AddConstraint(ModelGraphPtr initGraph) {
@@ -166,10 +166,9 @@ void DynamicShapeStrategy::DoVariableTile(const GpuModelGraphPtr initGraph, Sket
   auto arg1 = gpuTool.addRuntimeArgument(static_cast<int64_t>(prime1));
   auto arg2 = gpuTool.addRuntimeArgument(static_cast<int64_t>(prime2));
   std::vector<akgglobal::RuntimeVar> dynamicTiles{arg1, arg2};
-  size_t currMapDim = 0;
   size_t totalAxis = 0;
-  initGraph->rootAxis->forEachAxisBottomUp([&](const AxisPtr a) {
-    totalAxis++;
+  initGraph->rootAxis->forEachAxisBottomUp([&, currMapDim = size_t{0}](const AxisPtr a) mutable {
+    ++totalAxis;
     if (a->axisType.find(Axis::AxisLabel::kDynamic) != a->axisType.end()) {
       return;
     }
@@ -287,9 +286,7 @@ void TransposeStrategy::AddGpuConstraint(GpuModelGraphPtr gpuGraph) {
     return;
   }
 
-  for (auto axis : transposeWrite->loopNest_) {
-    sortByLoadAxes.push_front(axis);
-  }
+  sortByLoadAxes.assign(transposeWrite->loopNest_.rbegin(), transposeWrite->loopNest_.rend());
   std::sort(sortByLoadAxes.begin(), sortByLoadAxes.end(),
             [](const AxisPtr a1, const AxisPtr a2) { return a1->priority > a2->priority; });
   auto warpSize = GpuInfo::getInstance(gpuGraph->hardware).getWarpSizes();
@@ -785,6 +782,135 @@ void ParallelStrategy::AddCpuConstraint(CpuModelGraphPtr cpuGraph) {
       axis->tryAddConstraint(0, Constraint({paralleltileValue}));
       axis->tryAddConstraint(1, Constraint({unrollTileValue}));
     }
+  }
+}
+
+unsigned getOuterTileSize(const AxisPtr axis, unsigned blockNumber) {
+  unsigned upperBound = axis->loop->getConstantUpperBound();
+  unsigned lowerBound = axis->loop->getConstantLowerBound();
+  unsigned extent = upperBound - lowerBound;
+  // Calculate tile size to get approximately blockNumber blocks
+  unsigned tileSizePerBlock = (extent + blockNumber - 1) / blockNumber;
+  tileSizePerBlock = llvm::bit_ceil(tileSizePerBlock);
+  return tileSizePerBlock;
+}
+
+// Helper function to process tiling for a single axis
+static void processAxisTiling(const AxisPtr axis, const SmallVector<unsigned, 4> &tileSizes,
+                              unsigned innerTileSize, unsigned blockNumber, size_t &maxLevelToTile) {
+  if (axis == nullptr) {
+    return;
+  }
+  auto loop = axis->loop;
+  bool hasStaticBounds = loop && loop->hasConstantLowerBound() && loop->hasConstantUpperBound();
+  bool isDynamic = axis->axisType.find(Axis::AxisLabel::kDynamic) != axis->axisType.end();
+  if (!hasStaticBounds || isDynamic) {
+    auto tileConfig = axis->tryGetConfig(0, kTileCfg);
+    if (tileConfig != nullptr) {
+      tileConfig->value = 1;
+      axis->tryAddConstraint(0, Constraint({1}));
+    }
+    return;
+  }
+  int32_t lowerBound = loop->getConstantLowerBound();
+  int32_t upperBound = loop->getConstantUpperBound();
+  int32_t extent = upperBound - lowerBound;
+
+  // Get default tile sizes if not specified by user
+  SmallVector<unsigned, 4> currentTileSizes = tileSizes;
+  if (currentTileSizes.empty()) {
+    currentTileSizes = {std::max(getOuterTileSize(axis, blockNumber),
+      innerTileSize), innerTileSize};
+  }
+
+  SmallVector<unsigned, 4> usedTileSizes;
+  int32_t currentSize = extent;
+
+  for (size_t i = 0; i < currentTileSizes.size(); ++i) {
+    int32_t tileSize = static_cast<int32_t>(currentTileSizes[i]);
+    int32_t minRequired = (i == currentTileSizes.size() - 1) ? tileSize * 2 : tileSize;
+    if (currentSize >= minRequired) {
+      usedTileSizes.push_back(tileSize);
+      currentSize = tileSize;
+    } else {
+      usedTileSizes.push_back(currentSize);
+    }
+  }
+
+  size_t numLevels = usedTileSizes.size();
+  for (size_t level = 1; level < numLevels; ++level) {
+    axis->doExtraTile();
+  }
+  maxLevelToTile = std::max(maxLevelToTile, numLevels);
+
+  // Set tile sizes for each level
+  for (size_t level = 0; level < numLevels; ++level) {
+    auto tileConfig = axis->tryGetConfig(static_cast<int>(level), kTileCfg);
+    if (tileConfig != nullptr) {
+      tileConfig->value = static_cast<int>(usedTileSizes[level]);
+      axis->tryAddConstraint(static_cast<int>(level), Constraint({static_cast<int>(usedTileSizes[level])}));
+    }
+  }
+}
+
+void NpuDefaultTileStrategy::AddGpuConstraint(GpuModelGraphPtr gpuGraph) {
+  if (gpuGraph == nullptr || gpuGraph->rootAxis == nullptr) {
+    return;
+  }
+
+  std::unordered_map<size_t, unsigned> bandRankMap;
+  // get depth of each band
+  gpuGraph->rootAxis->forEachAxisTopDown([&bandRankMap](const AxisPtr axis) {
+    if (axis == nullptr) {
+      return;
+    }
+    auto currentDepth = static_cast<unsigned>(axis->axisIdx + 1);
+    auto it = bandRankMap.find(axis->bandIdx);
+    if (it == bandRankMap.end() || currentDepth > it->second) {
+      bandRankMap[axis->bandIdx] = currentDepth;
+    }
+  });
+
+  SmallVector<unsigned, 4> tileSizes;
+  auto tileSizesIt = gpuGraph->globalConfigs.find("npu.multiTileSizes");
+  if (tileSizesIt != gpuGraph->globalConfigs.end()) {
+    auto arrayAttr = dyn_cast<ArrayAttr>(tileSizesIt->second);
+    if (arrayAttr) {
+      for (auto attr : arrayAttr) {
+        if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+          tileSizes.push_back(static_cast<unsigned>(intAttr.getInt()));
+        }
+      }
+    }
+  }
+
+  // Ensure tile sizes are in non-increasing order (largest to smallest)
+  for (size_t i = 1; i < tileSizes.size(); ++i) {
+    if (tileSizes[i] > tileSizes[i-1]) {
+      tileSizes[i] = tileSizes[i-1];
+    }
+  }
+
+  size_t maxLevelToTile = 1;
+  unsigned innerTileSize = 512;
+  unsigned blockNumber = 40;
+
+  gpuGraph->rootAxis->forEachAxisTopDown([&bandRankMap, &maxLevelToTile, tileSizes,
+    innerTileSize, blockNumber](const AxisPtr axis) {
+    if (axis == nullptr) {
+      return;
+    }
+    auto rankIt = bandRankMap.find(axis->bandIdx);
+    if (rankIt == bandRankMap.end()) {
+      return;
+    }
+    processAxisTiling(axis, tileSizes, innerTileSize, blockNumber, maxLevelToTile);
+  });
+
+  gpuGraph->levelToTile = std::max(gpuGraph->levelToTile, maxLevelToTile);
+
+  if (gpuGraph->funcOp && gpuGraph->funcOp->hasAttr("npu.multiTileSizes")) {
+    (void)gpuGraph->funcOp->removeAttr("npu.multiTileSizes");
   }
 }
 

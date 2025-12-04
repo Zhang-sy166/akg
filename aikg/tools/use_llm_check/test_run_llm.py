@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from ai_kernel_generator.core.agent.agent_base import AgentBase
 
 
@@ -54,7 +54,6 @@ async def test_simple_run_llm():
     print(f"Prompt: {formatted_prompt}")
     if reasoning_content:
         print(f"Reasoning: {reasoning_content}")
-    print(f"Model: {model_name}")
     print(f"Output: {content}")
     print("===================")
 

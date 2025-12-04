@@ -45,7 +45,7 @@ MS_TO_NP_DTYPE_MAP = {
 }
 {% endif %}
 
-{% if "triton" in dsl %}
+{% if "triton_cuda" in dsl or "triton_ascend" in dsl %}
 {% if backend == "ascend" %}
 try:
     from ai_kernel_generator.utils.triton_autotune_patch import apply_triton_patches
@@ -53,7 +53,13 @@ try:
 except ImportError:
     pass
 {% endif %}
-from {{ op_name }}_triton import {{ impl_func_name }}
+{% if dsl == "triton_cuda" %}
+from {{ op_name }}_triton_cuda import {{ impl_func_name }}
+{% elif dsl == "triton_ascend" %}
+from {{ op_name }}_triton_ascend import {{ impl_func_name }}
+{% else %}
+from {{ op_name }}_{{ dsl }} import {{ impl_func_name }}
+{% endif %}
 {% elif dsl == "swft" %}
 from {{ op_name }}_swft import {{ impl_func_name }}
 {% elif dsl == "cuda_c" %}
@@ -182,11 +188,7 @@ def run_generation_implementations():
     if backend == "cuda":
         os.environ['CUDA_VISIBLE_DEVICES'] = str({{ device_id }})
         device = torch.device("cuda")
-        # 设置CUDA架构
-        if arch == "a100":
-            torch.cuda.set_device(0)  # 使用第一个a100设备
-        elif arch == "v100":
-            torch.cuda.set_device(0)  # 使用第一个v100设备
+        torch.cuda.set_device(0)  # 使用第一个CUDA设备
     elif backend == "ascend":
         if "ascend910" in arch:
             {% if dsl == "triton-russia" %}
@@ -216,8 +218,10 @@ def run_generation_implementations():
     if backend == "ascend":
         device = "Ascend"
         # 设置Ascend架构
-        if arch not in ["ascend910b4", "ascend310p3"]:
-            raise ValueError(f"不支持的ascend架构: {arch}")
+        # 支持 ascend910b1/b2/b2c/b3/b4 和 ascend310p3
+        supported_ascend_archs = ["ascend910b1", "ascend910b2", "ascend910b2c", "ascend910b3", "ascend910b4", "ascend310p3"]
+        if arch not in supported_ascend_archs:
+            raise ValueError(f"不支持的ascend架构: {arch}，仅支持ascend910b1/b2/b2c/b3/b4和ascend310p3")
     elif backend == "cpu":
         device = "CPU"
     else:
@@ -251,9 +255,9 @@ def run_generation_implementations():
         return x
         {% endif %}
     
-    def run_benchmark(inputs):
+    def run_benchmark(inputs, case_idx=0):
         """运行基准测试"""
-        {% if "triton" in dsl %}
+        {% if "triton_cuda" in dsl or "triton_ascend" in dsl %}
         {% if backend == "ascend" %}
         try:
             from ai_kernel_generator.core.verifier.profiler import profiler_npu
@@ -275,6 +279,16 @@ def run_generation_implementations():
         
         # 获取收集的配置信息
         config_timings = get_collected_config_timings()
+        
+        # 保存autotune信息到当前文件夹
+        if config_timings:
+            autotune_filename = f"autotune_info_case_{case_idx}.json"
+            try:
+                with open(autotune_filename, 'w') as f:
+                    json.dump(config_timings, f, indent=2, ensure_ascii=False)
+                print(f"[{{ op_name }}] Autotune info saved to {autotune_filename}")
+            except Exception as e:
+                print(f"[{{ op_name }}] Warning: Failed to save autotune info: {e}")
         {% endif %}
         
         # 进行最终的性能测试
@@ -363,7 +377,7 @@ def run_generation_implementations():
         inputs = [process_input(x) for x in inputs]
         {% endif %}
         
-        execution_time, method = run_benchmark(inputs)
+        execution_time, method = run_benchmark(inputs, case_idx=case_idx)
         all_execution_times.append(execution_time)
         print(f"[{{ op_name }}] Case {case_idx + 1} execution time: {execution_time * 1000:.4f} us")
     
@@ -395,7 +409,7 @@ def run_generation_implementations():
     inputs = get_inputs()
     {% endif %}
     
-    execution_time, method = run_benchmark(inputs)
+    execution_time, method = run_benchmark(inputs, case_idx=0)
     
     # 保存时间结果到文件
     result_data = {

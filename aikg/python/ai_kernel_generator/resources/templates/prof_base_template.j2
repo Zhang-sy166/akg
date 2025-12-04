@@ -45,8 +45,14 @@ MS_TO_NP_DTYPE_MAP = {
 }
 {% endif %}
 
-{% if "triton" in dsl %}
-from {{ op_name }}_triton import {{ impl_func_name }}
+{% if "triton_cuda" in dsl or "triton_ascend" in dsl %}
+{% if dsl == "triton_cuda" %}
+from {{ op_name }}_triton_cuda import {{ impl_func_name }}
+{% elif dsl == "triton_ascend" %}
+from {{ op_name }}_triton_ascend import {{ impl_func_name }}
+{% else %}
+from {{ op_name }}_{{ dsl }} import {{ impl_func_name }}
+{% endif %}
 {% elif dsl == "swft" %}
 from {{ op_name }}_swft import {{ impl_func_name }}
 {% elif dsl == "cuda_c" %}
@@ -68,11 +74,7 @@ def run_base_implementations():
     if backend == "cuda":
         os.environ['CUDA_VISIBLE_DEVICES'] = str({{ device_id }})
         device = torch.device("cuda")
-        # 设置CUDA架构
-        if arch == "a100":
-            torch.cuda.set_device(0)  # 使用第一个a100设备
-        elif arch == "v100":
-            torch.cuda.set_device(0)  # 使用第一个v100设备
+        torch.cuda.set_device(0)  # 使用第一个CUDA设备
     elif backend == "ascend":
         if "ascend910" in arch:
             {% if dsl == "triton-russia" %}
@@ -102,8 +104,10 @@ def run_base_implementations():
     if backend == "ascend":
         device = "Ascend"
         # 设置Ascend架构
-        if arch not in ["ascend910b4", "ascend310p3"]:
-            raise ValueError(f"不支持的ascend架构: {arch}")
+        # 支持 ascend910b1/b2/b2c/b3/b4 和 ascend310p3
+        supported_ascend_archs = ["ascend910b1", "ascend910b2", "ascend910b2c", "ascend910b3", "ascend910b4", "ascend310p3"]
+        if arch not in supported_ascend_archs:
+            raise ValueError(f"不支持的ascend架构: {arch}，仅支持ascend910b1/b2/b2c/b3/b4和ascend310p3")
     elif backend == "cpu":
         device = "CPU"
     else:
@@ -139,7 +143,7 @@ def run_base_implementations():
     
     def run_benchmark(inputs):
         """运行基准测试"""
-        {% if "triton" in dsl %}
+        {% if "triton_cuda" in dsl or "triton_ascend" in dsl %}
         {% if backend == "ascend" %}
         # 导入profiler以支持性能测试
         try:

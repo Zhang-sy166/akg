@@ -115,12 +115,19 @@ def get_hardware_doc(backend: str, arch: str) -> str:
     """
     hardware_mapping = {
         "ascend": {
-            "ascend310p3": "hardware/Ascend310P3.md",
-            "ascend910b4": "hardware/Ascend910B4.md"
+            "ascend910b1": "hardware/Ascend910B1.md",
+            "ascend910b2": "hardware/Ascend910B2.md",
+            "ascend910b2c": "hardware/Ascend910B2C.md",
+            "ascend910b3": "hardware/Ascend910B3.md",
+            "ascend910b4": "hardware/Ascend910B4.md",
+            "ascend310p3": "hardware/Ascend310P3.md"
         },
         "cuda": {
             "a100": "hardware/CUDA_A100.md",
-            "v100": "hardware/CUDA_V100.md"
+            "v100": "hardware/CUDA_V100.md",
+            "h20": "hardware/CUDA_H20.md",
+            "l20": "hardware/CUDA_L20.md",
+            "rtx3090": "hardware/CUDA_RTX3090.md"
         }
     }
 
@@ -132,12 +139,13 @@ def get_hardware_doc(backend: str, arch: str) -> str:
         raise ValueError(f"不支持的backend: {backend}")
 
     architecture_mapping = hardware_mapping[backend.lower()]
-    if arch.lower() not in architecture_mapping:
+    arch_lower = arch.lower()
+    
+    if arch_lower in architecture_mapping:
+        hardware_doc_path = architecture_mapping[arch_lower]
+    else:
         supported_architectures = list(architecture_mapping.keys())
         raise ValueError(f"不支持的architecture: {arch}，支持的architecture: {supported_architectures}")
-
-    # 构建hardware文档的完整路径
-    hardware_doc_path = architecture_mapping[arch.lower()]
     full_path = os.path.join(get_project_root(), "resources", "docs", hardware_doc_path)
 
     try:

@@ -80,6 +80,8 @@ def AKGAffineLoopTiling : Pass<"akg-affine-loop-tile", "func::FuncOp"> {
     ListOption<"tileSizes", "tile-sizes", "unsigned",
                "List of tile sizes for each perfect nest "
                "(overridden by -tile-size)">,
+    ListOption<"multiTileSizes", "multi-tile-sizes", "unsigned",
+               "List of tile sizes for multi-level tiling">,
   ];
 }
 
@@ -225,9 +227,18 @@ def WorkaroundFixReduceInitialization : Pass<"workaround-fix-reduce-initializati
     The initialization must be inside a 'if'.
     This pass is present because else we will have an issue during the memory-promotion pass that fail
     when the initialization is not near the usage.
-    When fix memory-promotion, this pass may disapear. But it may require more work to do that this pass.
+    When fix memory-promotion, this pass may disappear. But it may require more work to do that this pass.
   }];
   let constructor = "mlir::createWorkaroundFixReduceInitializationPass()";
+}
+
+def AffineReductionAnnotation : Pass<"affine-reduction-annotation", "func::FuncOp"> {
+  let summary = "Annotate reduction operations with reduction axes and direction in affine dialect";
+  let constructor = "mlir::affine::createAffineReductionAnnotationPass()";
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "mlir::affine::AffineDialect"
+  ];
 }
 
 def AKGAffineDataCopyGeneration : Pass<"akg-affine-data-copy-generate", "func::FuncOp"> {
@@ -256,6 +267,30 @@ def AKGAffineDataCopyGeneration : Pass<"akg-affine-data-copy-generate", "func::F
            /*default=*/"0",
            "Tag memory space identifier for copy generation (default: 0)">,
   ];
+}
+
+def VectorTransferTensorize : Pass<"vector-transfer-tensorize", "mlir::func::FuncOp"> {
+  let summary = "Promote vector.transfer_{read|write} into pure tensor/memref ops";
+  let constructor = "mlir::affine::createVectorTransferTensorizePass()";
+}
+
+def AffineForVectPass : Pass<"affine-for-vectorize", "mlir::func::FuncOp"> {
+  let summary = "Vectorize innermost affine.for loops (1-D, configurable VF)";
+  let description = [{
+    Vectorizes only leaf (innermost) affine.for loops using AKG's super-vectorize
+    functionality. For dynamic trip count or ub==1, uses --default-vf (default 512).
+    Supports iter_args reductions; skips broadcast-write stores.
+  }];
+  let constructor = "mlir::affine::createAffineForVectPass()";
+  let options = [
+    Option<"defaultVF", "default-vf", "int64_t", /*default=*/"512",
+           "Vector factor used when ub is dynamic or equal to 1">
+  ];
+}
+
+def TilingFunc : Pass<"tiling-func", "mlir::ModuleOp"> {
+  let summary = "This pass applies tiling to operations on tensors, dynamically processing tiles";
+  let constructor = "mlir::affine::createTilingFuncPass()";
 }
 
 #endif // AKG_MLIR_DIALECT_AFFINE_PASSES

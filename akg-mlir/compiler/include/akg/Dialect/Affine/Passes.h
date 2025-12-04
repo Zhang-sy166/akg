@@ -29,7 +29,10 @@
 #include "akg/Dialect/Affine/Transforms/AffineHandleBoundaryIfRestore.h"
 #include "akg/Dialect/Affine/Transforms/AffineIteratorConversion.h"
 #include "akg/Dialect/Affine/Transforms/AffineLoopReorder.h"
+#include "akg/Dialect/Affine/Transforms/AffineReductionAnnotation.h"
 #include "akg/Dialect/Affine/Transforms/AKGLoopFusion.h"
+#include "akg/Dialect/Affine/Transforms/VectorTransferTensorize.h"
+#include "akg/Dialect/Affine/Transforms/AffineForVectorize.h"
 #include "akg/Dialect/Affine/Transforms/AffineMemoryPromotion.h"
 #include "akg/Dialect/Affine/Transforms/AffineTailBlockTiling.h"
 #include "akg/Dialect/Affine/Transforms/ExtractIfOp.h"
@@ -42,6 +45,7 @@
 #include "akg/Dialect/Affine/Transforms/SimplifyShape.h"
 #include "akg/Dialect/Affine/Transforms/UnifyShape.h"
 #include "akg/Dialect/Affine/Transforms/WorkaroundFixReduceInitialization.h"
+#include "akg/Dialect/Affine/Transforms/TilingFunc.h"
 
 namespace mlir {
 

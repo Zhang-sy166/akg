@@ -111,7 +111,7 @@ class ResultProcessor:
             return False
 
     @staticmethod
-    def update_verifier_result(result: str, error_log: str, task_info: Dict[str, Any], profile_res: Optional[str] = None) -> None:
+    def update_verifier_result(result: str, error_log: str, task_info: Dict[str, Any], profile_res: Optional[dict] = None) -> None:
         """
         更新verifier结果
 
@@ -119,6 +119,11 @@ class ResultProcessor:
             result: verifier结果
             error_log: 错误日志
             task_info: 任务信息字典（会被修改）
+            profile_res: 性能分析结果字典，包含：
+                - gen_time: 生成代码执行时间（微秒）
+                - base_time: 基准代码执行时间（微秒）
+                - speedup: 加速比
+                - autotune_summary: autotune配置详情（可选，仅triton+ascend）
         """
         try:
             # 解析verifier结果
@@ -182,7 +187,7 @@ class ResultProcessor:
             parsed_result = conductor_parser.parse(content)
             if parsed_result and hasattr(parsed_result, 'decision'):
                 decision = parsed_result.decision.strip().lower()
-                suggestion = getattr(parsed_result, 'suggestion', '')
+                suggestion = getattr(parsed_result, 'error_and_suggestion', '')
 
                 # 验证决策是否有效
                 for agent in valid_next_agents:

@@ -34,7 +34,8 @@ class Coder(AgentBase):
                  framework: str,
                  backend: str,
                  arch: str = "",
-                 workflow_config_path: str = None,
+                 workflow_config_path: str = None,  # 已废弃，保留用于向后兼容
+                 parser_config_path: str = None,    # 新的 parser 配置路径
                  config: dict = None):
         self.op_name = op_name
         self.task_desc = remove_copyright_from_text(task_desc)
@@ -42,7 +43,8 @@ class Coder(AgentBase):
         self.framework = framework
         self.backend = backend
         self.arch = arch
-        self.workflow_config_path = workflow_config_path
+        self.workflow_config_path = workflow_config_path  # 保留用于向后兼容
+        self.parser_config_path = parser_config_path  # 新的配置路径
         self.config = config
         self.codegen_step_count = 0
         self.api_step_count = 0
@@ -64,15 +66,22 @@ class Coder(AgentBase):
         }
         super().__init__(context=context, config=config)
 
-        # 直接使用从workflow.yaml获取的coder解析器
-        self.code_parser = create_step_parser("coder", self.workflow_config_path)
+        # 使用新的 parser loader（不依赖 workflow.yaml）
+        from ai_kernel_generator.utils.parser_loader import create_agent_parser
+        self.code_parser = create_agent_parser("coder", self.parser_config_path)
         if not self.code_parser:
             raise ValueError(
-                "Failed to create coder parser from workflow config. Please check your workflow.yaml configuration.")
+                "Failed to create coder parser. Please check your parser_config.yaml configuration.")
         self.format_instructions = self.code_parser.get_format_instructions()
 
-        if "triton" in self.dsl:
-            self.func_name = f"{self.op_name}_triton_{self.framework}"
+        if "triton_cuda" in self.dsl or "triton_ascend" in self.dsl:
+            if self.dsl == "triton_cuda":
+                self.func_name = f"{self.op_name}_triton_cuda_{self.framework}"
+            elif self.dsl == "triton_ascend":
+                self.func_name = f"{self.op_name}_triton_ascend_{self.framework}"
+            else:
+                # 兼容旧代码，如果dsl包含triton_cuda或triton_ascend但不是精确匹配
+                self.func_name = f"{self.op_name}_{self.dsl}_{self.framework}"
         else:
             self.func_name = f"{self.op_name}_{self.dsl}_{self.framework}"
 
@@ -125,8 +134,9 @@ class Coder(AgentBase):
 
         except Exception as e:
             logger.warning(f"Failed to resolve configurable doc path: {e}, using fallback path")
-            # 降级到硬编码路径
-            base_dir = Path(get_project_root()) / "resources" / "docs" / "triton_docs" / "examples"
+            # 降级到硬编码路径（根据DSL类型选择）
+            docs_subdir = f"{self.dsl}_docs"
+            base_dir = Path(get_project_root()) / "resources" / "docs" / docs_subdir / "examples"
 
         if not base_dir.exists():
             logger.warning(f"Triton示例目录不存在: {base_dir}, 返回空字符串")
@@ -236,7 +246,7 @@ class Coder(AgentBase):
         Returns:
             str: 适合的API文档内容
         """
-        if len(self.base_doc["api_docs"]) > 5000:  # 如果api文档过长，使用llm进行content压缩
+        if len(self.base_doc["api_docs"]) > 6000:  # 如果api文档过长，使用llm进行content压缩
             api_parser = ParserFactory.get_api_parser()
             format_api_instructions = api_parser.get_format_instructions()
             api_input_data = {
@@ -368,15 +378,23 @@ class Coder(AgentBase):
             # 智能选择最优的示例代码
             dsl_examples = await self._select_optimal_examples()
 
+            # ============ Hint模式：参数范围已在sketch的"设计适用范围"注释中 ============
+            enable_hint_mode = self.config.get("enable_hint_mode", False)
+            has_space_config = "space_config_code" in task_info and task_info.get("space_config_code")
+            has_param_space = enable_hint_mode and has_space_config
+                      
             # 基于base_doc构建输入，只更新变化的部分
             input_data = {
                 **self.base_doc,
-                "sketch": sketch,  # AUL代码作为sketch
+                "sketch": sketch,  # sketch中已包含"设计适用范围"注释（含hint信息）
                 "llm_suggestions": conductor_suggestion,  # Conductor建议
                 "coder_code": task_info.get('coder_code', ''),
                 "error_log": task_info.get('verifier_error', '')[:5000],
                 "api_docs_suitable": api_docs_suitable,
-                "dsl_examples": dsl_examples
+                "dsl_examples": dsl_examples,
+                "enable_llm_range_inference": self.config.get("enable_llm_range_inference", False),  # LLM推理模式
+                "enable_hint_mode": enable_hint_mode,  # Hint模式
+                "has_param_space": has_param_space,  # 是否有参数空间
             }
 
             # 执行LLM生成前更新context，确保正确性

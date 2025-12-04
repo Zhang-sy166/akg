@@ -27,6 +27,9 @@ export AIKG_HUOSHAN_API_KEY=0cbf8bxxxxxx
 
 # Moonshot (https://www.moonshot.cn/)
 export AIKG_MOONSHOT_API_KEY=sk-xxx
+
+# 智谱大模型 (https://www.bigmodel.cn/)
+export AIKG_ZHIPU_API_KEY=sk-xxx
 ```
 
 ## 2. LLM 模型配置 (`llm_config.yaml`)
@@ -61,21 +64,37 @@ export AIKG_MOONSHOT_API_KEY=sk-xxx
 **功能**:
 -   **任务编排**: 为 `designer`、`coder`、`conductor` 等 Agent 指派不同的 LLM 模型。
 -   **灵活组合**: 可以创建多个配置文件，以应对不同场景（如本地 vLLM 与云端 API 混合）。
--   **默认方案**: 按 DSL 提供默认方案，例如 `default_triton_config.yaml`。
+-   **默认方案**: 按 DSL 提供默认方案，例如 `default_triton_cuda_config.yaml` 或 `default_triton_ascend_config.yaml`。
 
-**示例（coder-only，本地 vLLM）**：`vllm_triton_coderonly_config.yaml`
-为 coder-only 流程配置统一的本地 vLLM 模型。
+**示例（coder-only，本地 vLLM）**：`vllm_triton_ascend_coderonly_config.yaml`（Ascend）或 `vllm_triton_cuda_coderonly_config.yaml`（CUDA），用于为 coder-only 流程配置统一的本地 vLLM 模型。
 
 ```yaml
 # 模型预设配置
 agent_model_config:
-  designer: vllm_deepseek_r1_default
-  coder: vllm_deepseek_r1_default
-  conductor: vllm_deepseek_r1_default
-  api_generator: vllm_deepseek_r1_default
+  designer: vllm_deepseek_v31_default
+  coder: vllm_deepseek_v31_default
+  conductor: vllm_deepseek_v31_default
+  api_generator: vllm_deepseek_v31_default
+  feature_extractor: vllm_deepseek_v31_default
 
 # 日志配置
 log_dir: "~/aikg_logs"
+
+# Workflow 配置
+workflow_config_path: "config/coder_only_workflow.yaml"
+
+# 文档目录
+docs_dir:
+  designer: "resources/docs/triton_ascend_docs"  # Ascend 版本；CUDA 版本对应 triton_cuda_docs
+  coder: "resources/docs/triton_ascend_docs"
+
+# 性能分析
+profile_settings:
+  run_times: 50
+  warmup_times: 5
+
+# 验证配置
+verify_timeout: 600
 ```
 
 **使用方式**:
@@ -83,10 +102,11 @@ log_dir: "~/aikg_logs"
 在代码中，通过 `load_config()` 加载配置。
 ```python
 # 按 DSL 加载默认方案
-config = load_config(dsl="triton")
+config = load_config(dsl="triton_ascend", backend="ascend")  # 或使用 "triton_cuda" 用于 CUDA 后端
 
 # 或加载指定的配置文件
-config = load_config(config_path="/path/to/your/vllm_custom_plan.yaml")
+config = load_config(config_path="python/ai_kernel_generator/config/vllm_triton_ascend_coderonly_config.yaml")
+# config = load_config(config_path="python/ai_kernel_generator/config/vllm_triton_cuda_coderonly_config.yaml")
 
 # 在任务中使用该配置
 task = Task(
@@ -95,3 +115,20 @@ task = Task(
 )
 ```
 通过这种方式，您可以灵活地为不同的任务流程配置和切换底层的大语言模型。
+
+## 4. 全局环境变量设置
+
+您可以通过高优先级环境变量直接指定 LLM API。
+
+```bash
+export AIKG_BASE_URL="https://api.example.com/v1"
+export AIKG_MODEL_NAME="your-model-name"
+export AIKG_API_KEY="your-api-key"
+export AIKG_MODEL_ENABLE_THINK="enabled"  # 可选，启用thinking模式
+```
+
+其中 `AIKG_MODEL_ENABLE_THINK` 是可选参数，用于启用模型的 thinking 模式：
+- **DeepSeek 风格**：设置为 `"enabled"` 或 `"disabled"`
+- **GLM 风格**：设置为 `"true"` 或 `"false"`
+
+如果不设置此环境变量，则不启用 thinking 模式。
