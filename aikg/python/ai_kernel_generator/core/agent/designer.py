@@ -41,6 +41,7 @@ def get_inspirations(inspirations: List[dict]) -> str:
                     'speedup': float,
                     'autotune_summary': str (可选，仅triton+ascend)
                 },
+                'ncu_profile_result': str,
                 'is_parent': bool
             }
 
@@ -103,6 +104,13 @@ def get_inspirations(inspirations: List[dict]) -> str:
 
     return "\n".join(result_parts)
 
+def get_parent_ncu_profile_result(inspirations: List[dict]) -> str:
+    if not inspirations:
+        return ""
+    for i, inspiration in enumerate(inspirations):
+        if inspiration.get("is_parent", False):
+            return inspiration.get("ncu_profile_result", "")
+    return ""
 
 class Designer(AgentBase):
     def __init__(
@@ -221,6 +229,7 @@ class Designer(AgentBase):
             **self.base_doc,
             "llm_suggestions": conductor_suggestion,  # Conductor建议
             "inspirations": get_inspirations(task_info.get('inspirations', [])),
+            "parent_ncu_profile_result": get_parent_ncu_profile_result(task_info.get('inspirations', [])),
             "meta_prompts": task_info.get("meta_prompts", ""),
             "handwrite_suggestions": task_info.get("handwrite_suggestions", []),
             "evolve_first_round": evolve_first_round,  # 控制是否显示available_tiling
@@ -240,6 +249,17 @@ class Designer(AgentBase):
             "workflow_name": task_info.get("workflow_name", ""),
         }
         self.context.update(to_update_context)
+        
+        # DEBUG MODE
+        import os
+        if os.environ.get("AIKG_DEBUG_MODE", False):
+            import json
+            example_res = json.load(
+                open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_0_0_599aacf4.json', 'r'))
+            standard_result = example_res['task_info']['designer_code']
+            formatted_prompt = example_res['task_info']['designer_prompt']
+            reasoning = example_res['task_info']['designer_reasoning']
+            return standard_result, formatted_prompt, reasoning
 
         # 执行LLM生成
         # run_llm返回: (生成内容, 格式化提示词, 推理内容)

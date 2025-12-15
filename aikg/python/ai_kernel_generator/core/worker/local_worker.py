@@ -235,6 +235,61 @@ class LocalWorker(WorkerInterface):
             logger.error(f"[{task_id}] LocalWorker profiling failed: {e}", exc_info=True)
             return {'gen_time': float('inf'), 'base_time': 0.0, 'speedup': 0.0, 'artifacts': {}, 'error': str(e)}
     
+    async def ncu_profile(self, package_data: str, task_id: str, op_name: str, timeout: int = 300) -> Dict[str, Any]:
+        extract_dir = package_data
+        script_name = f"profile_{op_name}_generation.py"
+        script_path = os.path.join(extract_dir, script_name)
+        if not os.path.exists(script_path):
+            return False, f"NCU profile script {script_name} not found.", {}
+        
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+
+        python_exe = sys.executable
+        ncu_path = '/mnt/lustre-client/zhangzizheng/gpu5_install/NVIDIA-Nsight-Compute-2025.4/ncu'
+        ncu_metrics = 'gpu__time_duration.sum,sm__cycles_active.avg,dram__bytes_read.sum'
+        cmd = [
+            ncu_path, 
+            '--metrics', ncu_metrics,
+            '--target-processes', 'all',
+            python_exe, script_name
+        ]
+        logger.info(f"[{task_id}] Running ncu profiling for {op_name}")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=extract_dir,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout*10)
+            returncode = process.returncode
+            
+            output_log = stdout.decode(errors='replace') + "\n" + stderr.decode(errors='replace')
+            success = (returncode == 0)
+            
+            # 收集执行过程中生成的 JSON 文件
+            artifacts = collect_json_artifacts(extract_dir)
+            if artifacts:
+                logger.info(f"[{task_id}] Collected {len(artifacts)} artifact files: {list(artifacts.keys())}")
+            
+            if success:
+                logger.info(f"[{task_id}] NCU Proile passed.")
+            else:
+                logger.error(f"[{task_id}] NCU Profile failed with log:\n{output_log}")
+                
+            return success, output_log, artifacts
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            logger.error(f"[{task_id}] NCU Profile timed out.")
+            return False, f"NCU Profile timed out after {timeout} seconds.", {}
+        
+    
     def _run_msprof_profiling(self, extract_dir: str, op_name: str, task_id: str, warmup_times: int, run_times: int) -> Tuple[float, float]:
         """Run msprof profiling for Ascend backend (synchronous)"""
         try:

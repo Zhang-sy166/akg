@@ -43,6 +43,8 @@ else:
 from ai_kernel_generator.core.sketch import Sketch
 from ai_kernel_generator.utils.handwrite_loader import HandwriteLoader, HandwriteSampler
 
+from ai_kernel_generator.database.program_database import ProgramDatabase
+
 from .evolution_core import (
     save_implementation,
     load_best_implementations,
@@ -201,6 +203,7 @@ class InitializationProcessor:
             ]
             if any(sampler._total_count > 0 for sampler in init_data['island_handwrite_samplers']):
                 logger.info(f"Initialized {self.config.num_islands} independent HandwriteSamplers for islands")
+            init_data['program_database'] = ProgramDatabase(evolve_config=self.config)
         else:
             init_data['individual_handwrite_samplers'] = [
                 HandwriteSampler(
@@ -257,6 +260,7 @@ class TaskCreationProcessor:
                 self.init_data['island_impls'],
                 self.config.elite_size
             )
+            self.init_data['program_database'].migration()
         
         # 准备灵感和meta prompts
         if self.config.use_islands:
@@ -328,6 +332,8 @@ class TaskCreationProcessor:
                         if parent_implementation is None and stored_implementations:
                             parent_implementation = random.choice(stored_implementations)
                     
+                    parent_implementation = self.init_data['program_database'].sample_island_parent(island_idx)
+                    
                     # 采样其他灵感
                     current_round_implementations = [
                         impl for impl in (round_implementations or []) if impl.get('round') == round_idx
@@ -342,6 +348,22 @@ class TaskCreationProcessor:
                         use_tiered_sampling=True,
                         parent_implementations=all_excluded_implementations
                     )
+                    sampled = self.init_data['program_database'].sample_island_others(island_idx, parent_implementation.get('id'), self.config.inspiration_sample_num)
+                    sampled.insert(0, parent_implementation)
+                    
+                    formatted_ins = []
+                    for idx, p in enumerate(sampled):
+                        formatted_ins.append(
+                            {
+                                'id': p.get('id'),
+                                'sketch': p.get('sketch', ''),
+                                'impl_code': p.get('impl_code', ''),
+                                'profile': p.get('profile', float('inf')),
+                                'ncu_profile_result': p.get('ncu_profile_result', ''),
+                                'strategy_mode': 'evolution',
+                                'is_parent': True if idx == 0 else False
+                            }
+                        )
                     
                     # 将父代加入灵感列表
                     if parent_implementation:
@@ -358,16 +380,16 @@ class TaskCreationProcessor:
                             'is_parent': True
                         }
                         sampled.insert(0, parent_inspiration)
-                    
+                    sampled = formatted_ins
                     island_inspirations[island_idx].append(sampled)
                 
                 island_meta_prompts[island_idx] = load_meta_prompts(self.config.dsl, self.config.tasks_per_island)
                 island_handwrite_suggestions[island_idx] = self.init_data['island_handwrite_samplers'][island_idx].sample()
-        
         return {
             'inspirations': island_inspirations,
             'meta_prompts': island_meta_prompts,
-            'handwrite_suggestions': island_handwrite_suggestions
+            'handwrite_suggestions': island_handwrite_suggestions,
+            # 'optimize_history': [self.init_data['program_database'].build_optimize_history(ins[0].get("id")) if len(ins) > 0 else "" for ins in island_inspirations],
         }
     
     def _prepare_simple_inspirations(self, round_idx: int) -> Dict[str, Any]:
@@ -423,7 +445,6 @@ class TaskCreationProcessor:
             
             for pid in range(self.config.tasks_per_island):
                 task_id = f"{round_idx}_{island_idx}_{pid}"
-                
                 task = AIKGTask(
                     op_name=self.config.op_name,
                     task_desc=self.config.task_desc,
@@ -621,6 +642,7 @@ class ResultProcessor:
                         'dsl': self.config.dsl,
                         'framework': self.config.framework,
                         'sketch': '',
+                        'ncu_profile_result': task_info.get("ncu_profile_result", ""),
                         'source_island': island_idx
                     }
                     successful_impls.append(impl_info)
@@ -647,6 +669,8 @@ class ResultProcessor:
                         
                         # 保存到岛屿存储
                         save_implementation(impl_info, self.config.islands_storage_dirs[island_idx])
+                        await self.init_data['program_database'].insert_island(island_idx, impl_info['impl_code'], impl_info['framework_code'], impl_info['profile'],
+                                                                            impl_info['backend'], impl_info['arch'], impl_info['dsl'], impl_info)
                         
                         # 添加到全局最佳实现列表
                         self.init_data['best_implementations'].append(impl_info)

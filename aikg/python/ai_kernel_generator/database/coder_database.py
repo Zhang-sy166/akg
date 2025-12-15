@@ -24,6 +24,7 @@ from ai_kernel_generator.utils.common_utils import get_md5_hash
 
 logger = logging.getLogger(__name__)
 
+# Path(get_project_root()).parent.parent /mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/
 DEFAULT_CODER_DATABASE_PATH = Path(get_project_root()).parent.parent / "coder_database"
 
 class CoderDatabase(Database):
@@ -52,6 +53,8 @@ class CoderDatabase(Database):
         return cls._instances[instance_key]
         
     def __init__(self, database_path: str = "", config: dict = None):
+        # TODO __init__ 也要加锁防止多重初始化
+        
         # 防止重复初始化
         if hasattr(self, '_initialized') and self._initialized:
             return

@@ -64,7 +64,8 @@ def get_inputs():
 def get_init_inputs():
     return []  # No special initialization inputs needed
 '''
-
+def get_task_desc(file: str):
+    return ''.join(open(file, 'r').readlines())
 
 async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     """
@@ -84,7 +85,7 @@ async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     config.arch = "a100"
 
     # 进化参数
-    config.max_rounds = 2
+    config.max_rounds = 4
     config.parallel_num = 2
 
     # 岛屿模型参数
@@ -100,8 +101,11 @@ async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     config.config_path = str(Path(get_project_root()) / "config" / "vllm_triton_cuda_evolve_config.yaml")
 
     # 选择要运行的任务
-    config.op_name = get_op_name()
-    config.task_desc = get_task_desc()
+    # config.op_name = get_op_name()
+    # config.task_desc = get_task_desc()
+    config.op_name = 'matmul_transeposed_both'
+    config.task_desc = get_task_desc('mmtb_desc.py')
+    # import pdb;pdb.set_trace()
 
     # 打印配置信息
     print_evolve_config(config.op_name, config)

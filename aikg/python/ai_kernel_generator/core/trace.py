@@ -81,6 +81,7 @@ class Trace:
             error_log=error_log,
             profile_res=profile_res
         )
+        
         self.trace_list.append(record)
 
         # 对于所有agent，保存原始json数据

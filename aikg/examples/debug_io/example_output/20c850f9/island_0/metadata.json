@@ -1,0 +1,29 @@
+{
+    "op_name": "matmul",
+    "op_type": "matmul",
+    "input_specs": "输入 input0: shape (8192, 2048), dtype float16; 输入 input1: shape (4096, 8192), dtype float16",
+    "output_specs": "输出 output0: shape (2048, 4096), dtype float32",
+    "computation": "output0 = np.matmul(np.transpose(input0), np.transpose(input1))",
+    "schedule": {
+        "base": {
+            "tiling": "dim0_0=64, dim1_0=128, dim2_0=32",
+            "parallel": "dim0 parallel 32, dim1 parallel 32"
+        },
+        "pass": {
+            "flatten": false,
+            "multi_buffer": 1
+        },
+        "text": {
+            "swizzle": "NONE"
+        }
+    },
+    "profile": "triton_cuda",
+    "backend": {
+        "gen_time": 2606.0800552368164,
+        "base_time": 12192.768096923828,
+        "speedup": 4.678585399716687,
+        "unique_dir": "I1_1_0_S02_verify"
+    },
+    "arch": "cuda",
+    "dsl": "a100"
+}

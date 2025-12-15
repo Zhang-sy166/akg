@@ -407,6 +407,17 @@ class Coder(AgentBase):
                 "workflow_name": task_info.get("workflow_name", ""),
             }
             self.context.update(to_update_codegen_details)
+            
+            # DEBUG MODE
+            import os
+            if os.environ.get("AIKG_DEBUG_MODE", False):
+                import json
+                example_res = json.load(
+                    open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_0_0_599aacf4.json', 'r'))
+                standard_result = example_res['task_info']['coder_code']
+                formatted_prompt = example_res['task_info']['coder_prompt']
+                reasoning = example_res['task_info']['coder_reasoning']
+                return standard_result + ' ' * int(task_info.get("task_id", 1)), formatted_prompt, reasoning
 
             # 执行LLM生成
             return await self.run_llm(self.coder_prompt, input_data, self.model_config.get("coder", "default"))

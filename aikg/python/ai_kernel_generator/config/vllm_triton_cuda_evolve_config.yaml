@@ -1,12 +1,12 @@
 # Model preset configuration
 agent_model_config:
-  designer: vllm_deepseek_v31_default
-  coder: vllm_deepseek_v31_default
-  conductor: vllm_deepseek_v31_default
-  api_generator: vllm_deepseek_v31_default
-  sketch: vllm_deepseek_v31_default
-  selector: vllm_deepseek_v31_default
-  test_case_generator: vllm_deepseek_v31_default
+  designer: deepseek_r1_default
+  coder: deepseek_r1_default
+  conductor: deepseek_r1_default
+  api_generator: deepseek_r1_default
+  sketch: deepseek_r1_default
+  selector: deepseek_r1_default
+  test_case_generator: deepseek_r1_default
 
 # Log configuration
 log_dir: "~/aikg_logs"

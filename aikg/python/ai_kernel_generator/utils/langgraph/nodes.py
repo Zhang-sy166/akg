@@ -110,6 +110,12 @@ class NodeFactory:
     
     @staticmethod
     def create_coder_node(coder_instance, trace_instance):
+        
+        def get_parent_id(state: KernelGenState):
+            if len(state.get("inspirations", [])) > 0:
+                return state["inspirations"][0]["id"]
+            return None
+        
         """创建 Coder 节点函数"""
         async def coder_node(state: KernelGenState) -> dict:
             """Coder 节点：生成可执行代码"""
@@ -176,6 +182,7 @@ class NodeFactory:
                 "coder_reasoning": reasoning,
                 "iteration": state.get("iteration", 0) + 1,
                 "step_count": state.get("step_count", 0) + 1,
+                "parent_id": get_parent_id(state),
                 "agent_history": ["coder"],
                 "conductor_suggestion": None  # 清除旧建议
             }
@@ -250,6 +257,7 @@ class NodeFactory:
                 
                 # Profile（如果所有验证都通过）
                 profile_res = {}
+                ncu_profile_result = ''
                 task_type = state.get("task_type", "precision_only")
                 backend = state.get("backend", "")
                 if verify_res and task_type == "profile" and backend in ["ascend", "cuda"]:
@@ -260,6 +268,9 @@ class NodeFactory:
                         current_step,
                         -1,  # device_id，Worker 模式默认使用 -1
                         config.get("profile_settings", {})
+                    )
+                    ncu_success, ncu_profile_result, ncu_profile_prompt, ncu_profile_reasoning = await verifier_instance.run_ncu_profile(
+                        state, current_step
                     )
                 
                 # 只有所有验证都通过后，才复制到 passed_cases
@@ -289,7 +300,8 @@ class NodeFactory:
                 return {
                     "verifier_result": verify_res,
                     "verifier_error": verify_log,
-                    "profile_res": profile_res,  # 保留空字典，不转成 None
+                    "profile_res": profile_res,  # 保留空字典，不转成 None,
+                    "ncu_profile_result": ncu_profile_result,
                     "multi_case_error": multi_case_error,  # 更新 multi_case_error
                     "step_count": state.get("step_count", 0) + 1,
                     "agent_history": ["verifier"]

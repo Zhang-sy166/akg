@@ -1127,6 +1127,40 @@ if __name__ == "__main__":
                 elif isinstance(self.worker, RemoteWorker):
                     await self.worker.release_device(acquired_device, task_id=self.task_id)
                     logger.info(f"[{self.op_name}] Released remote device {acquired_device}")
+                    
+    async def run_ncu_profile(self, task_info: Dict[str, Any], current_step: int = 0):        
+        # 找到 profile 文件
+        # 获取 verifier 目录
+        expanded_log_dir = os.path.expanduser(self.log_dir)
+        unique_dir_name = f"I{self.task_id}_S{current_step:02d}_verify"
+        verify_dir = os.path.join(expanded_log_dir, self.op_name, unique_dir_name)
+        
+        # 配置 Worker
+        from ai_kernel_generator.core.worker.local_worker import LocalWorker
+        if isinstance(self.worker, LocalWorker):
+            if not hasattr(self.worker, 'device_pool') or self.worker.device_pool is None:
+                raise RuntimeError(
+                    f"[{self.op_name}] LocalWorker must have device_pool. "
+                    "This should be provided by Task when creating _private_worker."
+                )
+            package_data = verify_dir
+        else:
+            package_data = self._pack_directory(verify_dir)
+        
+        # 命令行跑 impl code 前面加上 ncu ...
+        success, log, artifacts = await self.worker.ncu_profile(package_data, self.task_id, self.op_name)
+        
+        if success:
+            logger.info(f"[{self.op_name}] NCU profile 执行成功")
+        else:
+            logger.error(f"[{self.op_name}] ncu profile 执行失败，日志如下：\n{log}")
+        
+        from ai_kernel_generator.core.agent.profiler import Profiler
+        profiler = Profiler(self.config, task_info['framework'], task_info['task_desc'], task_info['coder_code'], task_info['dsl'], log, task_info.get("optimize_history", ""))
+        result, prompt, reasoning = await profiler.run()
+               
+        return success, result, prompt, reasoning
+        
 
     def read_autotune_results_from_directory(self, verify_dir: str) -> str:
         """从验证目录读取所有autotune结果并格式化输出

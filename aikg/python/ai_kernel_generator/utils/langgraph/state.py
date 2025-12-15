@@ -45,6 +45,8 @@ class KernelGenState(TypedDict, total=False):
     verifier_result: bool
     verifier_error: str
     profile_res: Optional[Dict[str, Any]]
+    optimize_history: str
+    ncu_profile_result: str
     
     # === 多 case 验证 ===
     multi_case_error: Optional[str]
