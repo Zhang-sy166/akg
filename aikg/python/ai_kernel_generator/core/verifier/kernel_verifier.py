@@ -1148,7 +1148,7 @@ if __name__ == "__main__":
             package_data = self._pack_directory(verify_dir)
         
         # 命令行跑 impl code 前面加上 ncu ...
-        success, log, artifacts = await self.worker.ncu_profile(package_data, self.task_id, self.op_name)
+        success, log, artifacts, ncu_json = await self.worker.ncu_profile(package_data, self.task_id, self.op_name)
         
         if success:
             logger.info(f"[{self.op_name}] NCU profile 执行成功")
@@ -1156,7 +1156,7 @@ if __name__ == "__main__":
             logger.error(f"[{self.op_name}] ncu profile 执行失败，日志如下：\n{log}")
         
         from ai_kernel_generator.core.agent.profiler import Profiler
-        profiler = Profiler(self.config, task_info['framework'], task_info['task_desc'], task_info['coder_code'], task_info['dsl'], log, task_info.get("optimize_history", ""))
+        profiler = Profiler(self.config, self.op_name, task_info['framework'], task_info['task_desc'], task_info['coder_code'], task_info['dsl'], ncu_json, task_info.get("optimize_history", ""))
         result, prompt, reasoning = await profiler.run()
                
         return success, result, prompt, reasoning
@@ -1630,7 +1630,8 @@ if __name__ == "__main__":
             # 检测是否是triton autotune代码
             is_triton_autotune = (self.dsl in ["triton_cuda", "triton_ascend"] and 
                                   self._detect_triton_autotune(target_code))
-            
+            # 暂时不用AIKG本身的autotune验证逻辑
+            is_triton_autotune = False
             if is_triton_autotune:
                 # 对于autotune的triton代码，单独验证每个config
                 config_verify_result, config_verify_log, final_code = await self._verify_configs_separately(

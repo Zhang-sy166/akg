@@ -25,6 +25,92 @@ from ai_kernel_generator import get_project_root
 
 logger = logging.getLogger(__name__)
 
+def get_inspirations(inspirations: List[dict]) -> str:
+    """
+    将inspirations列表转换为字符串
+
+    Args:
+        inspirations: 包含字典的列表，每个字典格式为:
+            {
+                'strategy_mode': str,
+                'impl_code': str,
+                'sketch': str,
+                'profile': {
+                    'gen_time': float,
+                    'base_time': float,
+                    'speedup': float,
+                    'autotune_summary': str (可选，仅triton+ascend)
+                },
+                'ncu_profile_result': str,
+                'is_parent': bool
+            }
+
+    Returns:
+        str: 拼接后的字符串，包含所有impl_code和profile信息
+    """
+    if not inspirations:
+        return ""
+
+    result_parts = []
+    has_parent = False
+
+    for i, inspiration in enumerate(inspirations):
+        if not isinstance(inspiration, dict):
+            logger.warning(f"跳过非字典类型的inspiration: {type(inspiration)}")
+            continue
+
+        sketch = inspiration.get('sketch', '')
+        impl_code = inspiration.get('impl_code', '')
+        profile = inspiration.get('profile', {})
+        is_parent = inspiration.get('is_parent', False)
+        
+        # 检测是否有父代
+        if is_parent:
+            has_parent = True
+        if not is_parent:
+            continue
+        if sketch or impl_code:  # 只有当sketch或impl_code不为空时才添加
+            # 处理profile信息（dict格式）
+            gen_time = profile.get('gen_time', float('inf'))
+            base_time = profile.get('base_time', 0.0)
+            speedup = profile.get('speedup', 0.0)
+            autotune_summary = profile.get('autotune_summary', '')
+            
+            if gen_time != float('inf'):
+                profile_text = f"根据此方案草图生成的代码计算耗时: {gen_time:.4f}us, 基准代码耗时: {base_time:.4f}us, 加速比: {speedup:.2f}x"
+                # 如果有autotune信息，添加到profile_text
+                if autotune_summary:
+                    profile_text += f"\n\nAutotune配置详情:\n{autotune_summary}"
+            else:
+                profile_text = "代码执行耗时: N/A"
+
+            # 如果是父代，添加标记
+            parent_mark = " 【父代方案】" if is_parent else ""
+            inspiration_text = f"## Inspiration {i+1}{parent_mark} {profile_text}\n"
+            # if sketch:
+            #     inspiration_text += f"算法草图 ：\n```\n{sketch}\n```\n"
+            if impl_code:
+                inspiration_text += f"代码：\n```\n{impl_code}\n```\n"
+            result_parts.append(inspiration_text)
+
+    # 如果有父代，在开头添加进化优化策略说明
+    if has_parent and result_parts:
+        strategy_note = (
+            "**进化优化策略**：\n"
+            "- 标记为【父代方案】的是本次进化的基础，请以它为主要参考进行改进和优化\n"
+        )
+        result_parts.insert(0, strategy_note)
+
+    return "\n".join(result_parts)
+
+def get_parent_ncu_profile_result(inspirations: List[dict]) -> str:
+    if not inspirations:
+        return ""
+    for i, inspiration in enumerate(inspirations):
+        if inspiration.get("is_parent", False):
+            return inspiration.get("ncu_profile_result", "")
+    return ""
+
 
 class Coder(AgentBase):
     def __init__(self,
@@ -57,6 +143,7 @@ class Coder(AgentBase):
             raise ValueError("config is required for Coder")
 
         context = {
+            "agent_name": "coder",
             "dsl": dsl,
             "op_name": op_name,
             "framework": framework,
@@ -86,7 +173,7 @@ class Coder(AgentBase):
             self.func_name = f"{self.op_name}_{self.dsl}_{self.framework}"
 
         # 初始化coder生成模板
-        self.coder_prompt = self.load_template("coder/codegen.j2")
+        self.coder_prompt = self.load_template("coder/codegen_from_kg.j2")
         self.api_docs_prompt = self.load_template("utils/api_gen_template.j2")
         self.user_examples_prompt = self.load_template("utils/examples_compression_template.j2")
 
@@ -99,7 +186,7 @@ class Coder(AgentBase):
             "func_name": self.func_name,
             "format_instructions": self.format_instructions,
 
-            "api_docs": self.load_doc("api/api.md"),
+            "api_docs": self.load_doc("api/api_from_kg.md"),
             "dsl_basic_docs": self.load_doc("basic_docs.md"),
             "expert_suggestion": self.load_doc("suggestion_docs.md"),
 
@@ -221,7 +308,8 @@ class Coder(AgentBase):
                     backend=self.backend,
                     arch=self.arch,
                     dsl=self.dsl,
-                    sample_num=self.database_config["sample_num"]
+                    sample_num=3
+                    # sample_num=self.database_config["sample_num"]
                 )
 
                 for doc in docs:
@@ -331,7 +419,8 @@ class Coder(AgentBase):
         """
         database_examples = await self._samples_database_examples()
 
-        user_examples = self._load_user_examples()
+        # user_examples = self._load_user_examples()
+        user_examples = ''
 
         # 优先使用database_examples
         if database_examples:
@@ -356,6 +445,12 @@ class Coder(AgentBase):
         logger.warning("user_examples和database_examples都为空，将不提供示例代码")
         return ""
 
+    def save_error_lines(self, verifier_error: str="") -> str:
+        total_num_char = len(verifier_error) if len(verifier_error) < 3000 else 3000
+        if total_num_char == 0:
+            return ''
+        return verifier_error[:total_num_char // 3] + '\n......hide too much lines......\n' + verifier_error[-(total_num_char * 2 // 3):]
+        
     async def run(self, task_info: dict) -> Tuple[str, str, str]:
         """执行代码生成
 
@@ -382,16 +477,19 @@ class Coder(AgentBase):
             enable_hint_mode = self.config.get("enable_hint_mode", False)
             has_space_config = "space_config_code" in task_info and task_info.get("space_config_code")
             has_param_space = enable_hint_mode and has_space_config
-                      
+            
+            logger.info(f"coder dsl example {dsl_examples if get_parent_ncu_profile_result(task_info.get('inspirations', [])) == '' else ''}")
             # 基于base_doc构建输入，只更新变化的部分
             input_data = {
                 **self.base_doc,
                 "sketch": sketch,  # sketch中已包含"设计适用范围"注释（含hint信息）
                 "llm_suggestions": conductor_suggestion,  # Conductor建议
                 "coder_code": task_info.get('coder_code', ''),
-                "error_log": task_info.get('verifier_error', '')[:5000],
+                "error_log": self.save_error_lines(task_info.get('verifier_error', '')),
+                "inspirations": get_inspirations(task_info.get('inspirations', [])),
+                "parent_ncu_profile_result": get_parent_ncu_profile_result(task_info.get('inspirations', [])),
                 "api_docs_suitable": api_docs_suitable,
-                "dsl_examples": dsl_examples,
+                "dsl_examples": dsl_examples if get_parent_ncu_profile_result(task_info.get('inspirations', [])) == "" else "",
                 "enable_llm_range_inference": self.config.get("enable_llm_range_inference", False),  # LLM推理模式
                 "enable_hint_mode": enable_hint_mode,  # Hint模式
                 "has_param_space": has_param_space,  # 是否有参数空间
@@ -413,7 +511,7 @@ class Coder(AgentBase):
             if os.environ.get("AIKG_DEBUG_MODE", False):
                 import json
                 example_res = json.load(
-                    open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_0_0_599aacf4.json', 'r'))
+                    open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_1_0_5e9f6847.json', 'r'))
                 standard_result = example_res['task_info']['coder_code']
                 formatted_prompt = example_res['task_info']['coder_prompt']
                 reasoning = example_res['task_info']['coder_reasoning']

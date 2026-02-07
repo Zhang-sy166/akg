@@ -175,6 +175,9 @@ result = tl.where(mask, data, 0.0)
 - **返回**: 根据条件选择的值
 - **用途**: SIMD 友好的条件选择
 
+### 注意
+triton没有`tl.tanh`的直接API，请你用其他数学运算方式去实现它，不可直接调用。
+
 ## 6. 原子操作 API
 
 ### tl.atomic_add(pointer, value)

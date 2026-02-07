@@ -27,11 +27,11 @@ class DSLAdapterTritonCuda(DSLAdapter):
         if framework == "mindspore":
             return "import torch\nimport triton\nimport triton.language as tl\n"
         elif framework == "torch":
-            return "import triton\nimport triton.language as tl\n"
+            return "import triton\nimport triton.language as tl\nimport nvtx\n"
         elif framework == "numpy":
             return "import numpy as np\nimport triton\nimport triton.language as tl\n"
         else:
-            return "import triton\nimport triton.language as tl\n"
+            return "import triton\nimport triton.language as tl\nimport nvtx\n"
     
     def get_impl_import(self, op_name: str, impl_func_name: str) -> str:
         """Return implementation function import.
@@ -94,12 +94,18 @@ class DSLAdapterTritonCuda(DSLAdapter):
             return result
         
         import triton.testing
+        
+        # cache triton autotune best config
+        triton_benchmark_fn()
+        
+        nvtx_range_push = nvtx.start_range("target_kernel", color="red")
         execution_time_ms = triton.testing.do_bench(
             triton_benchmark_fn,
             warmup={warmup},
             rep={runs},
             return_mode="median"
         )
+        nvtx.end_range(nvtx_range_push)
         method = "triton_do_bench"
 """
         return code

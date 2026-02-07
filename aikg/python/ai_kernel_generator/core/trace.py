@@ -97,6 +97,12 @@ class Trace:
                 self.save_parameters_to_files(agent_name, [
                     ('error_log', error_log)
                 ])
+        elif agent_name == "profiler":
+            self.save_parameters_to_files(agent_name, [
+                ('result', result),  # 保存原始json
+                ('prompt', prompt),
+                ('reasoning', reasoning)
+            ])
 
     def save_parsed_code(self, agent_name: str, params: list) -> None:
         """

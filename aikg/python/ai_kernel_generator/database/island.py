@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import random
@@ -12,45 +13,61 @@ from ai_kernel_generator.database.evolve_database import EvolveVectorStore
 logger = logging.getLogger(__name__)
 
 class Island(Database):
-    def __init__(self, island_id: int, pd_path: str, database_config: dict):
+    def __init__(self, island_id: int, pd_path: str, database_config: dict, evolve_shortcut: list[str], evolve_database: str):
+        self.evolve_database_suffix = evolve_database
         self.island_database_path = pd_path + '/island_' + str(island_id)
-        import os
         os.makedirs(self.island_database_path, exist_ok=True)
-        
-        self.base_vector_store = EvolveVectorStore(
-            database_path=self.island_database_path,
-            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
-            index_name='base_vector_store',
-            features=['base'],
-            config=database_config
-        )
-        self.pass_vector_store = EvolveVectorStore(
-            database_path=self.island_database_path,
-            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
-            index_name='pass_vector_store',
-            features=['pass'],
-            config=database_config
-        )
-        self.text_vector_store = EvolveVectorStore(
-            database_path=self.island_database_path,
-            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
-            index_name='text_vector_store',
-            features=['text'],
-            config=database_config
-        )
-        self.vector_stores = [self.base_vector_store, self.pass_vector_store, self.text_vector_store]
-        self.vector_store_map = {
-            self.base_vector_store: 'base',
-            self.pass_vector_store: 'pass',
-            self.text_vector_store: 'text',
-        }
         
         # maintain an online list
         self.program_list: list[Program] = []
         
+        self.move_evolve_shortcut(evolve_shortcut, evolve_database)
+        
+        self.basic_vector_store = EvolveVectorStore(
+            database_path=self.island_database_path,
+            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
+            index_name='basic_vector_store',
+            features=['basic'],
+            config=database_config
+        )
+        self.schedule_vector_store = EvolveVectorStore(
+            database_path=self.island_database_path,
+            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
+            index_name='schedule_vector_store',
+            features=['schedule'],
+            config=database_config
+        )
+        self.memory_vector_store = EvolveVectorStore(
+            database_path=self.island_database_path,
+            embedding_model_name='/mnt/lustre-client/zhangzizheng/ALL_MODELS/Jerry0/text2vec-large-chinese',
+            index_name='memory_vector_store',
+            features=['memory'],
+            config=database_config
+        )
+        self.vector_stores = [self.basic_vector_store, self.schedule_vector_store, self.memory_vector_store]
+        self.vector_store_map = {
+            self.basic_vector_store: 'basic',
+            self.schedule_vector_store: 'schedule',
+            self.memory_vector_store: 'memory',
+        }
+                
         super().__init__(self.island_database_path, self.vector_stores, database_config)
         
-        logger.info(f'island {island_id} was created\n')
+        logger.info(f'Island {island_id} was created, has {len(evolve_shortcut)} evolve shortcuts.\n')
+    
+    def move_evolve_shortcut(self, evolve_shortcut: list[str], evolve_database: str):
+        for es in evolve_shortcut:
+            src_dir = Path(self.island_database_path).parent.parent.parent / "evolve_database" / evolve_database / es
+            if os.path.exists(src_dir) and os.path.isdir(src_dir):
+                des_dir = Path(self.island_database_path) / es
+                os.system(f"cp -r {src_dir} {des_dir}")      
+                # maintain an online list
+                self.program_list.append(Program(str(des_dir / "impl_info.json")))    
+    
+    def sample_latest(self):
+        if len(self.program_list) == 0:
+            return None
+        return self.program_list[-1].get_impl_info()
     
     def random_sample_parent(self):
         if len(self.program_list) == 0:
@@ -76,11 +93,11 @@ class Island(Database):
         if file_path.exists():
             self.program_list.remove(Program(file_path))
 
-        import os
-        if os.environ.get('AIKG_DEBUG_MODE', False):
-            features = json.load(open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/metadata.json', 'r'))
-        else:
-            features = await self.extract_features(impl_code, framework_code, profile, backend, arch, dsl)
+        # import os
+        # if os.environ.get('AIKG_DEBUG_MODE', False):
+        #     features = json.load(open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/metadata.json', 'r'))
+        # else:
+        features = await self.extract_features(impl_code, framework_code, backend, arch, dsl, '', profile)
             
         file_path.mkdir(parents=True, exist_ok=True)
         metadata_file = file_path / "metadata.json"
@@ -99,6 +116,11 @@ class Island(Database):
         with open(info_data_path, 'w', encoding='utf-8') as f:
             json.dump(impl_info, f, ensure_ascii=False, indent=2)
         self.program_list.append(Program(file_path))
+        
+        # add program to offline evolve database
+        src_dir = file_path
+        des_dir = Path(self.island_database_path).parent.parent.parent / "evolve_database" / self.evolve_database_suffix
+        os.system(f"cp -rf {src_dir} {des_dir}")       
         
         logger.info(f"Operator implementation inserted successfully, file path: {file_path}")
 

@@ -171,7 +171,7 @@ class Designer(AgentBase):
             "task_desc": remove_copyright_from_text(self.task_desc),
             "hardware_docs": get_hardware_doc(self.backend, self.arch),
             "format_instructions": self.format_instructions,
-            "sketch_guide": self.load_doc("SKETCH_DESIGN_v2.md")
+            "sketch_guide": self.load_doc("SKETCH_DESIGN_v2_from_kg.md")
         }
 
         # 为SWFT实现类型添加支持的API
@@ -255,7 +255,7 @@ class Designer(AgentBase):
         if os.environ.get("AIKG_DEBUG_MODE", False):
             import json
             example_res = json.load(
-                open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_0_0_599aacf4.json', 'r'))
+                open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_1_0_5e9f6847.json', 'r'))
             standard_result = example_res['task_info']['designer_code']
             formatted_prompt = example_res['task_info']['designer_prompt']
             reasoning = example_res['task_info']['designer_reasoning']

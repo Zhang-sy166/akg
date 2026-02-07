@@ -24,14 +24,15 @@ class Profiler(AgentBase):
     使用 NCU 等硬件分析工具测评 impl code 性能
     """
 
-    def __init__(self, model_config: dict, framework: str = "", task_desc: str = "", impl_code: str = "", dsl: str = "", ncu_rep: str = "",
+    def __init__(self, config: dict, op_name: str, framework: str = "", task_desc: str = "", impl_code: str = "", dsl: str = "", ncu_json: str = "",
                  optimize_history: str=""):
-        self.model_config = model_config
+        self.model_config = config.get("agent_model_config", {})
+        self.op_name = op_name
         self.impl_code = impl_code
         self.framework = framework
         self.task_desc = task_desc
         self.dsl = dsl
-        self.ncu_rep = ncu_rep
+        self.ncu_json = ncu_json
         self.optimize_history = optimize_history
 
         context = {
@@ -47,12 +48,12 @@ class Profiler(AgentBase):
         self.gen_profile_suggestion_template = self.load_template("profiler/gen_profile_suggestion.j2")
 
         self.gen_profile_suggestion_input = {
-            "op_name": self.impl_code,
+            "op_name": self.op_name,
             "framework": self.framework,
             "task_desc": self.task_desc,
             "impl_code": self.impl_code,
             "dsl": self.dsl,
-            "ncu_profile_res": self.ncu_rep,
+            "ncu_profile_res": self.ncu_json.strip(),
         }
 
     async def run(self) -> Tuple[str, str, str]:
@@ -60,7 +61,7 @@ class Profiler(AgentBase):
         hash = get_md5_hash(impl_code=self.impl_code)
         to_update_context = {
             "impl_code": self.impl_code,
-            "optimize_history": self.optimize_history,
+            # "optimize_history": self.optimize_history,
             "hash": hash,
         }
         self.context.update(to_update_context)

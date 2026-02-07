@@ -413,6 +413,9 @@ class AgentBase(ABC):
                 response_metadata = f"response_metadata: {raw_result.response_metadata}\n" + \
                     f"usage_metadata: {raw_result.usage_metadata}"
                 logger.info(response_metadata)
+                with open('tokens_cnt.csv', 'a') as tokens_cnt_f:
+                    line = f"{self.context.get('agent_name', 'null_name')},{raw_result.usage_metadata.get('input_tokens', '0')},{raw_result.usage_metadata.get('output_token_details', {}).get('reasoning', '0')},{raw_result.usage_metadata.get('output_tokens', '0')}\n"
+                    tokens_cnt_f.write(line)
 
             logger.debug(f"LLM End:    [status] %s -- [model] %s",
                          self.context.get('agent_name', ''), effective_model_name)

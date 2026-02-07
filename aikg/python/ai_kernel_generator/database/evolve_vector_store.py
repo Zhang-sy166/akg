@@ -27,7 +27,7 @@ class EvolveVectorStore(VectorStore):
                  database_path: str, 
                  embedding_model_name: str = "GanymedeNil/text2vec-large-chinese", 
                  index_name: str = "evolve_vector_store",
-                 features: List[str] = ["base", "pass", "text"],
+                 features: List[str] = ["basic", "schedule", "memory"],
                  config: dict = None):
         super().__init__(database_path, embedding_model_name, index_name, features, config)
     
@@ -47,7 +47,7 @@ class EvolveVectorStore(VectorStore):
         page_content_parts = []
         for schedule_block in features:
             # 处理schedule块字段，直接展开为键值对
-            block = metadata.get('schedule', {}).get(schedule_block, {})
+            block = metadata.get(schedule_block, {})
             if isinstance(block, dict):
                 for key, value in block.items():
                     page_content_parts.append(f"{key}: {value}")

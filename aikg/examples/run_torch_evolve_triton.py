@@ -67,7 +67,7 @@ def get_init_inputs():
 def get_task_desc(file: str):
     return ''.join(open(file, 'r').readlines())
 
-async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
+async def run_torch_evolve_triton(op_name: str, task_desc: str, evolve_database: str, worker_mode="local", worker_url=None):
     """
     运行Triton进化示例
     
@@ -85,17 +85,17 @@ async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     config.arch = "a100"
 
     # 进化参数
-    config.max_rounds = 4
-    config.parallel_num = 2
+    config.max_rounds = 10
+    config.parallel_num = 1
 
     # 岛屿模型参数
-    config.num_islands = 2
+    config.num_islands = 1
     config.migration_interval = 2
     config.elite_size = 5
     config.parent_selection_prob = 0.5
 
     # 设备配置
-    config.device_list = [0]
+    config.device_list = [1]
 
     # 配置文件路径
     config.config_path = str(Path(get_project_root()) / "config" / "vllm_triton_cuda_evolve_config.yaml")
@@ -103,9 +103,9 @@ async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     # 选择要运行的任务
     # config.op_name = get_op_name()
     # config.task_desc = get_task_desc()
-    config.op_name = 'matmul_transeposed_both'
-    config.task_desc = get_task_desc('mmtb_desc.py')
-    # import pdb;pdb.set_trace()
+    config.op_name = op_name  # any kernel name
+    config.task_desc = get_task_desc(task_desc)
+    config.evolve_database = evolve_database # must be with task_desc levelx/xxx
 
     # 打印配置信息
     print_evolve_config(config.op_name, config)
@@ -160,6 +160,7 @@ async def run_torch_evolve_triton(worker_mode="local", worker_url=None):
     evolution_result = await evolve(
         op_name=config.op_name,
         task_desc=config.task_desc,
+        evolve_database=config.evolve_database,
         dsl=config.dsl,
         framework=config.framework,
         backend=config.backend,
@@ -208,6 +209,22 @@ if __name__ == "__main__":
         help="远程 Worker Service 的 URL（仅 remote 模式需要）。也可通过环境变量 AIKG_WORKER_URL 设置"
     )
     
+    parser.add_argument(
+        "--op-name",
+        type=str,
+        default="Conv3d_Scaling_Tanh_Multiply_SigmoidConvTranspose3d_Sum_LayerNorm_AvgPool_GELU",
+    )
+    parser.add_argument(
+        "--task-desc",
+        type=str,
+        default="/mnt/lustre-client/zhangzizheng/AIKG/KernelBench/KernelBench/level2/48_Conv3d_Scaling_Tanh_Multiply_Sigmoid.py",
+    )
+    parser.add_argument(
+        "--evolve-database",
+        type=str,
+        default="level2/48_Conv3d_Scaling_Tanh_Multiply_Sigmoid",
+    )
+    
     args = parser.parse_args()
     
     print("=" * 60)
@@ -225,4 +242,4 @@ if __name__ == "__main__":
             print(f"   请设置环境变量 AIKG_WORKER_URL 或使用 --worker-url 参数")
         print()
     
-    asyncio.run(run_torch_evolve_triton(worker_mode=args.worker, worker_url=args.worker_url))
+    asyncio.run(run_torch_evolve_triton(args.op_name, args.task_desc, args.evolve_database, worker_mode=args.worker, worker_url=args.worker_url))

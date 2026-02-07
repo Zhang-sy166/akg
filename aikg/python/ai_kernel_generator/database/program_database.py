@@ -1,3 +1,5 @@
+import os
+import random
 import logging
 from typing import List, Dict
 from pathlib import Path
@@ -44,11 +46,41 @@ class ProgramDatabase():
             
             self.database_path = get_database_dir(database_path, evolve_config)
             database_config = evolve_config.config
-            self.island_list = [Island(i, self.database_path, database_config) for i in range(evolve_config.num_islands)]
+            island_evolve_shortcut = self.evolve_from_shortcut(evolve_config.evolve_database, evolve_config.num_islands)
+            self.island_list = [Island(i, self.database_path, database_config, island_evolve_shortcut[i], evolve_config.evolve_database) for i in range(evolve_config.num_islands)]
             
             self._initialized = True
         finally:
             self.__class__._lock = False
+    
+    def evolve_from_shortcut(self, evolve_database: str, num_islands: int) -> List[List[str]]:
+        shortcut_path = Path(get_project_root()).parent.parent / "evolve_database" / evolve_database
+        if not os.path.exists(shortcut_path):
+            os.makedirs(shortcut_path, exist_ok=True)
+            return [[] * num_islands]
+        all_seeds = [seed for seed in os.listdir(shortcut_path) if os.path.isdir(os.path.join(shortcut_path, seed)) and 'vector_store' not in seed]
+        if len(all_seeds) == 0:
+            return [[] * num_islands]
+        
+        random.shuffle(all_seeds)
+        n = len(all_seeds)
+        base_size = n // num_islands
+        remainder = n % num_islands
+        
+        result = []
+        start = 0
+        for i in range(num_islands):
+            # 计算当前份的大小
+            current_size = base_size + (1 if i < remainder else 0)
+            
+            if current_size > 0:
+                result.append(all_seeds[start:start + current_size])
+            else:
+                result.append([])  # 不够分则返回空列表
+            start += current_size
+        
+        return result
+        
     
     def die_programs(self):
         # TODO
@@ -62,6 +94,7 @@ class ProgramDatabase():
         # TODO
         logger.info(f"sample island_{island_idx} parent")
         
+        return self.island_list[island_idx].sample_latest()
         return self.island_list[island_idx].random_sample_parent()
     
     def sample_island_others(self, island_idx: int, parent_idx: int, sample_num: int):
@@ -91,11 +124,10 @@ class ProgramDatabase():
         optimize_history_str = "下面是该算子的历史优化路径（包括相对应的算子实现、性能测试和优化建议），根据时间顺序从开始到现在排列：\n\n"
         for i, op in enumerate(optimize_history):
             op_temp = f"第{i+1}次迭代的算子实现如下:\n" + op[0] + "\n"
-            op_temp += f"第{i+1}次迭代的性能数据如下:\n" + "运行时间: " + op[1]["gen_time"] + "us\n"
+            op_temp += f"第{i+1}次迭代的性能数据如下:\n" + "运行时间: " + str(op[1]["gen_time"]) + "us\n"
             op_temp += f"针对第{i+1}次迭代的优化方向建议如下，该优化方向会在下一次算子实现中被应用:\n" + op[2] + "\n"
             optimize_history_str += op_temp
-        
-        return optimize_history
+        return optimize_history_str
         
         
 def get_database_dir(database_dir: str='', evolve_config=None):

@@ -28,11 +28,12 @@ class FeatureExtractor(AgentBase):
         - 特征信息总结
     """
 
-    def __init__(self, model_config: dict, impl_code: str = "", framework_code: str = "", dsl: str = ""):
+    def __init__(self, model_config: dict, impl_code: str = "", framework_code: str = "", dsl: str = "", sketch_code: str = ""):
         self.model_config = model_config
         self.impl_code = impl_code
         self.framework_code = framework_code
         self.dsl = dsl
+        self.sketch_code = sketch_code
 
         context = {
             "agent_name": "feature_extractor",
@@ -44,12 +45,13 @@ class FeatureExtractor(AgentBase):
         self.format_instructions = self.feature_parser.get_format_instructions()
 
         # 初始化模板
-        self.feature_extraction_template = self.load_template("utils/feature_extraction_template.j2")
+        self.feature_extraction_template = self.load_template("utils/feature_extraction_template_from_zzz.j2")
 
         self.feature_extraction_input = {
             "impl_code": self.impl_code,
             "framework_code": self.framework_code,
             "dsl": self.dsl,
+            "sketch_code": self.sketch_code,
             "format_instructions": self.format_instructions,
         }
 

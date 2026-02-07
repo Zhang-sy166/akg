@@ -70,6 +70,7 @@ class EvolveRuntimeConfig:
     # 基础配置
     op_name: str
     task_desc: str
+    evolve_database: str
     dsl: str
     framework: str
     backend: str
@@ -87,7 +88,7 @@ class EvolveRuntimeConfig:
     
     # 采样配置
     handwrite_sample_num: int = 2
-    inspiration_sample_num: int = 3
+    inspiration_sample_num: int = 1
     
     # 运行时计算的属性
     use_islands: bool = field(init=False)
@@ -97,7 +98,8 @@ class EvolveRuntimeConfig:
     
     def __post_init__(self):
         """初始化后计算派生属性"""
-        self.use_islands = self.num_islands > 1 and self.elite_size > 0
+        # self.use_islands = self.num_islands > 1 and self.elite_size > 0
+        self.use_islands = True
         self.tasks_per_island = max(1, self.parallel_num // self.num_islands) if self.use_islands else self.parallel_num
         
         # 设置存储目录
@@ -128,6 +130,7 @@ def create_runtime_config(params: Dict[str, Any]) -> EvolveRuntimeConfig:
     return EvolveRuntimeConfig(
         op_name=params['op_name'],
         task_desc=params['task_desc'],
+        evolve_database=params['evolve_database'],
         dsl=params['dsl'],
         framework=params['framework'],
         backend=params['backend'],
@@ -348,8 +351,11 @@ class TaskCreationProcessor:
                         use_tiered_sampling=True,
                         parent_implementations=all_excluded_implementations
                     )
-                    sampled = self.init_data['program_database'].sample_island_others(island_idx, parent_implementation.get('id'), self.config.inspiration_sample_num)
-                    sampled.insert(0, parent_implementation)
+                    try:
+                        sampled = self.init_data['program_database'].sample_island_others(island_idx, parent_implementation.get('id'), self.config.inspiration_sample_num)
+                        sampled.insert(0, parent_implementation)
+                    except Exception as e:
+                        print(e)
                     
                     formatted_ins = []
                     for idx, p in enumerate(sampled):
@@ -388,8 +394,8 @@ class TaskCreationProcessor:
         return {
             'inspirations': island_inspirations,
             'meta_prompts': island_meta_prompts,
-            'handwrite_suggestions': island_handwrite_suggestions,
-            # 'optimize_history': [self.init_data['program_database'].build_optimize_history(ins[0].get("id")) if len(ins) > 0 else "" for ins in island_inspirations],
+            'optimize_history': [self.init_data['program_database'].build_optimize_history(ins[0][0].get("id")) if len(ins[0]) > 0 else "" for ins in island_inspirations],
+            'handwrite_suggestions': island_handwrite_suggestions
         }
     
     def _prepare_simple_inspirations(self, round_idx: int) -> Dict[str, Any]:
@@ -434,6 +440,7 @@ class TaskCreationProcessor:
         
         island_inspirations = inspirations_data['inspirations']
         island_meta_prompts = inspirations_data['meta_prompts']
+        optimize_history = inspirations_data['optimize_history']
         island_handwrite_suggestions = inspirations_data['handwrite_suggestions']
         
         for island_idx in range(self.config.num_islands):
@@ -456,9 +463,11 @@ class TaskCreationProcessor:
                     device_pool=None,  # 新写法：使用 WorkerManager
                     framework=self.config.framework,
                     task_type="profile",
-                    workflow="default_workflow",  # LangGraph workflow 名称
+                    workflow="default_workflow",
+                    # workflow="coder_only_workflow",  # LangGraph workflow 名称
                     inspirations=island_inspirations[island_idx][pid],
                     meta_prompts=island_meta_prompts[island_idx][pid] if island_meta_prompts[island_idx] else None,
+                    optimize_history=optimize_history[island_idx],
                     handwrite_suggestions=island_handwrite_suggestions[island_idx],
                 )
                 
@@ -629,6 +638,7 @@ class ResultProcessor:
                     
                     impl_info = {
                         'id': generate_unique_id(),
+                        'parent_id': task_info.get('parent_id', ''),
                         'op_name': task_op_name,
                         'round': round_idx,
                         'task_id': task_info.get('task_id', ''),

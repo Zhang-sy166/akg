@@ -48,27 +48,21 @@ class Database():
         else:
             raise ValueError("config is required for Database")
 
-    async def extract_features(self,impl_code: str, framework_code:str, backend:str, arch: str, dsl:str, profile=float('inf')):
+    async def extract_features(self,impl_code: str, framework_code:str, backend:str, arch: str, dsl:str, sketch_code: str,  profile=float('inf')):
         """提取任务特征"""
         # 特征提取
         feature_extractor = FeatureExtractor(
             model_config=self.model_config,
             impl_code=impl_code,
-            framework_code=framework_code
+            framework_code=framework_code,
+            sketch_code=sketch_code
         )
         feature_content, _, _ = await feature_extractor.run()
         parsed_content = feature_extractor.feature_parser.parse(feature_content)
         extracted_features = {
-            "op_name": parsed_content.op_name,
-            "op_type": parsed_content.op_type,
-            "input_specs": parsed_content.input_specs,
-            "output_specs": parsed_content.output_specs,
-            "computation": parsed_content.computation,
+            "basic": parsed_content.basic,
             "schedule": parsed_content.schedule,
-            "profile": profile,
-            "backend": backend,
-            "arch": arch,
-            "dsl": dsl
+            "memory": parsed_content.memory
         }
         return extracted_features
 
@@ -80,7 +74,8 @@ class Database():
         res_dict = {"strategy_mode": strategy_mode}
         for content in output_content:
             if content == "impl_code" and dsl:
-                    code_file_path = case_path / f"{dsl}.py"
+                    # code_file_path = case_path / f"{dsl}.py"
+                    code_file_path = case_path / "triton.py"
                     if not code_file_path.exists():
                         raise FileNotFoundError(f"Code file not found: {code_file_path}")
                     with open(code_file_path, "r", encoding="utf-8") as f:
@@ -175,7 +170,7 @@ class Database():
         md5_hash = get_md5_hash(impl_code=impl_code, backend=backend, arch=arch, dsl=dsl)
         file_path = Path(self.database_path) / arch / dsl / md5_hash
 
-        features = await self.extract_features(impl_code, framework_code, backend, arch, dsl, profile)
+        features = await self.extract_features(impl_code, framework_code, backend, arch, dsl, '', profile)
         file_path.mkdir(parents=True, exist_ok=True)
         metadata_file = file_path / "metadata.json"
         with open(metadata_file, "w", encoding="utf-8") as f:

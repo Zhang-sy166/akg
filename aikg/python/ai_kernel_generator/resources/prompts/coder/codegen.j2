@@ -155,6 +155,9 @@ class ModelNew(nn.Cell):
 
 {{ sketch }}
 
+**======重要规则======**
+**请注意，你需要严格按照上述算子草图,用{{ dsl }}来编写实现所有算子，生成一整个融合算子，不可以拆分成多个triton算子实现，除了一些数据的预处理之外不能借助原生的{{ framework }}函数来实现计算操作。**
+
 {% if dsl == 'triton_cuda' or dsl == 'triton_ascend' %}
 如果草图中包含@llm_hint("avaliable_tiling")，使用triton的autotune装饰器进行生成测试
 {% endif %}

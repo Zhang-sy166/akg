@@ -63,6 +63,9 @@ class RunnerConfig:
         self.elite_size = 0
         self.parent_selection_prob = 0.5
         
+        # triton database config
+        self.database_config = {}
+        
         # 手写建议采样参数
         self.handwrite_decay_rate = 2.0
 
@@ -70,11 +73,12 @@ class RunnerConfig:
         self.device_list = [0]
 
         # 配置文件路径
-        self.config_path = "config/default_evolve_config.yaml"
+        self.config_path = "config/default_triton_cuda_config.yaml"
 
         # 任务配置
         self.op_name = "relu_op"
         self.task_desc = "Path/to/your/tasks/relu_task.py"
+        self.evolve_database = ""
 
     @classmethod
     def from_yaml(cls, config_path: str, skip_task_config: bool = False) -> 'RunnerConfig':

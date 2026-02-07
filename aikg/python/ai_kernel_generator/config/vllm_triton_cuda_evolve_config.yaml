@@ -1,12 +1,37 @@
 # Model preset configuration
+# agent_model_config:
+#   designer: deepseek_r1_default
+#   coder: deepseek_r1_default
+#   profiler: deepseek_r1_default
+#   conductor: deepseek_r1_default
+#   feature_extractor: deepseek_r1_default
+#   api_generator: deepseek_r1_default
+#   sketch: deepseek_r1_default
+#   selector: deepseek_r1_default
+#   test_case_generator: deepseek_r1_default
+
+# agent_model_config:
+#   designer: smallai_o3
+#   coder: smallai_o3
+#   profiler: smallai_o3
+#   conductor: smallai_o3
+#   feature_extractor: smallai_o3
+#   api_generator: smallai_o3
+#   sketch: smallai_o3
+#   selector: smallai_o3
+#   test_case_generator: smallai_o3
+
 agent_model_config:
-  designer: deepseek_r1_default
-  coder: deepseek_r1_default
-  conductor: deepseek_r1_default
-  api_generator: deepseek_r1_default
-  sketch: deepseek_r1_default
-  selector: deepseek_r1_default
-  test_case_generator: deepseek_r1_default
+  designer: smallai_claude-sonnet-4-5-thinking-all
+  coder: smallai_claude-sonnet-4-5-thinking-all
+  profiler: smallai_claude-sonnet-4-5-thinking-all
+  conductor: smallai_claude-sonnet-4-5-thinking-all
+  feature_extractor: smallai_claude-sonnet-4-5-thinking-all
+  api_generator: smallai_claude-sonnet-4-5-thinking-all
+  sketch: smallai_claude-sonnet-4-5-thinking-all
+  selector: smallai_claude-sonnet-4-5-thinking-all
+  test_case_generator: smallai_claude-sonnet-4-5-thinking-all
+  default: smallai_claude-sonnet-4-5-thinking-all
 
 # Log configuration
 log_dir: "~/aikg_logs"
@@ -42,3 +67,9 @@ enable_llm_range_inference: false  # LLM inference mode: LLM infers parameter ra
 multi_case_num: 10  # Number of test cases to sample
 sampling_strategy: "mixed"  # Sampling strategy: random/boundary/mixed
 sampling_seed: 42  # Random seed for reproducibility
+
+# triton 数据库配置
+# database_config:
+#   enable_rag: True          # Whether to enable RAG functionality
+#   sample_num: 4             # Default sampling number
+#   embedding_device: "cpu"    # Embedding model device: cpu or cuda

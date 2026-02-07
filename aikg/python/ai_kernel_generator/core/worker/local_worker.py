@@ -8,8 +8,14 @@ import logging
 import sys
 import io
 import json
-from typing import Tuple, Dict, Any, Union
+from typing import List, Tuple, Dict, Any, Union, Optional, Sequence
 from contextlib import ExitStack
+
+from pathlib import Path
+
+import pandas as pd
+import numpy as np
+import math
 
 from .interface import WorkerInterface
 from ..async_pool.device_pool import DevicePool
@@ -23,6 +29,177 @@ from ..verifier.profiler_utils import (
 
 logger = logging.getLogger(__name__)
 
+NCU_METRICS = ",".join([
+    "sm__cycles_active.avg",
+    "sm__warps_active.avg.pct_of_peak_sustained_active",
+    "launch__occupancy_limit_blocks",
+    "launch__occupancy_limit_registers",
+    "launch__occupancy_limit_shared_mem",
+    "launch__registers_per_thread",
+    "sm__inst_executed.sum",
+    "sm__inst_executed_pipe_fp32.avg.pct_of_peak_sustained_active",
+    "sm__inst_executed_pipe_tensor.avg.pct_of_peak_sustained_active",
+    "dram__bytes_read.sum",
+    "dram__bytes_write.sum",
+    "dram__throughput.avg.pct_of_peak_sustained_elapsed",
+    "dram__bytes.sum.per_second",
+    "gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed",
+    "l1tex__t_sector_hit_rate.pct",
+    "l1tex__throughput.avg.pct_of_peak_sustained_active",
+    "lts__t_sector_hit_rate.pct",
+    "lts__throughput.avg.pct_of_peak_sustained_active",
+    "smsp__warp_issue_stalled_memory_dependency_per_warp_active.pct",
+    "smsp__warp_issue_stalled_short_scoreboard_per_warp_active.pct",
+    "smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct",
+    "smsp__warp_issue_stalled_barrier_per_warp_active.pct",
+    "smsp__warp_issue_stalled_branch_resolving_per_warp_active.pct",
+    "smsp__sass_average_branch_targets_threads_uniform.pct",
+])
+
+
+# List version for convenient header selection
+NCU_METRIC_COLUMNS: List[str] = [s.strip() for s in NCU_METRICS.split(",")]
+
+
+def load_ncu_metrics(
+    csv_path: Union[str, Path] = "ncu_temp.csv",
+    columns: Optional[Sequence[str]] = None,
+    extra_keep: Optional[Sequence[str]] = ("Kernel Name",),
+    coerce_numeric: bool = True,
+    name_list: Optional[Sequence[str]] = None,  # New: multiple kernel names
+    select: str = "last",                       # Selection policy when multiple rows per name
+) -> pd.DataFrame:
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV not found: {csv_path}")
+
+    df = pd.read_csv(csv_path, comment="=", low_memory=False)
+
+    metric_cols = list(columns) if columns is not None else NCU_METRIC_COLUMNS
+    keep_cols: List[str] = []
+    if extra_keep:
+        keep_cols.extend([c for c in extra_keep if c in df.columns])
+    keep_cols.extend([c for c in metric_cols if c in df.columns])
+    if not keep_cols:
+        raise ValueError("No requested columns found in the CSV header.")
+
+    sub = df[keep_cols].copy()
+
+    # Drop the units row
+    if len(sub) > 0:
+        first_row_str = sub.iloc[0].astype(str).str.lower()
+        unit_tokens = ("%", "inst", "cycle", "block", "register", "register/thread")
+        if first_row_str.apply(lambda x: any(tok in x for tok in unit_tokens)).any():
+            sub = sub.iloc[1:].reset_index(drop=True)
+
+    # Coerce metrics to numeric
+    if coerce_numeric:
+        metric_in_sub = [c for c in metric_cols if c in sub.columns]
+        sub[metric_in_sub] = (
+            sub[metric_in_sub]
+            .replace({",": "", "%": ""}, regex=True)
+            .apply(pd.to_numeric, errors="coerce")
+        )
+
+    # ========== Extract by kernel name list ==========
+    if name_list:
+        results = []
+        for name in name_list:
+            # Use contains match instead of exact equality
+            matched = sub[sub["Kernel Name"].astype(str).str.contains(name, regex=False, na=False)]
+            if matched.empty:
+                continue
+            if len(matched) > 1:
+                if select == "first":
+                    row = matched.iloc[[0]]
+                elif select == "last":
+                    row = matched.iloc[[-1]]
+                elif select == "max_cycles" and "sm__cycles_active.avg" in matched.columns:
+                    row = matched.sort_values("sm__cycles_active.avg", ascending=False).head(1)
+                else:
+                    row = matched.iloc[[-1]]  # fallback
+            else:
+                row = matched
+            results.append(row)
+
+        if results:
+            sub = pd.concat(results, ignore_index=True)
+        else:
+            sub = pd.DataFrame(columns=keep_cols)
+
+    return sub
+
+
+def metrics_to_prompt(
+    df: pd.DataFrame,
+    title: str = "Here are the GPU NCU profiling metrics:",  # Placeholder, not emitted
+    key_by: str = "Kernel Name",
+    round_digits: Optional[int] = 3,
+    compact: bool = False,
+    keep_cols: Optional[List[str]] = None,
+) -> str:
+    """
+    Return **only** the data section as a JSON string:
+    {
+      "<key>": { "<metric>": <value>, ... }  OR
+      "<key>": [{...}, {...}]  # list if there are multiple rows for the same key
+    }
+    If the key column doesn't exist, return a list of rows: [ {col: val, ...}, ... ]
+    """
+
+    def _safe(v: Any) -> Any:
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            return None
+        if isinstance(v, (pd.Timestamp, pd.Timedelta, pd.Interval)):
+            return str(v)
+        if isinstance(v, np.generic):
+            v = v.item()
+        if isinstance(v, float) and math.isinf(v):
+            return "inf" if v > 0 else "-inf"
+        if isinstance(v, float) and round_digits is not None:
+            return round(v, round_digits)
+        return v
+
+    # Empty table
+    if df is None or df.empty:
+        return "{}"
+
+    cols = list(df.columns)
+
+    # Round numeric columns
+    if round_digits is not None:
+        num_cols = df.select_dtypes(include="number").columns
+        if len(num_cols) > 0:
+            df = df.copy()
+            df[num_cols] = df[num_cols].round(round_digits)
+
+    # If key column is missing, return a list of rows
+    if key_by not in cols:
+        rows = [{k: _safe(v) for k, v in rec.items()} for rec in df.to_dict(orient="records")]
+        return json.dumps(rows, ensure_ascii=False, indent=None if compact else 2)
+
+    # Determine value columns
+    value_cols = [c for c in cols if c != key_by]
+    if keep_cols is not None:
+        value_cols = [c for c in value_cols if c in keep_cols]
+
+    data: Dict[str, Any] = {}
+    for rec in df[[key_by] + value_cols].to_dict(orient="records"):
+        k = str(rec.pop(key_by))
+        val_obj = {ck: _safe(cv) for ck, cv in rec.items()}
+        ## convert json - value to json - list
+        for val_obj_k in val_obj.keys():
+            val_obj[val_obj_k] = [val_obj[val_obj_k]]
+        if k in data:
+            # if isinstance(data[k], list):
+            #     data[k].append(val_obj)
+            # else:
+            #     data[k] = [data[k], val_obj]
+            for val_obj_k in val_obj.keys():
+                data[k][val_obj_k].extend(val_obj[val_obj_k])
+        else:
+            data[k] = val_obj
+    return json.dumps(data, ensure_ascii=False, indent=None if compact else 2)
 
 def collect_json_artifacts(directory: str) -> Dict[str, str]:
     """
@@ -60,6 +237,26 @@ class LocalWorker(WorkerInterface):
         self.device_pool = device_pool
         self.backend = backend
 
+    def waiting_for_resources(self):
+        import time
+        cnt = 0
+        while True:
+            if cnt % 100 == 0:
+                logger.info(f"I'm waiting for GPU_{os.environ.get('CUDA_VISIBLE_DEVICES', 0)} resources for {cnt * 300 / 60} minutes ...\n")
+            result = subprocess.check_output(
+                [
+                    "nvidia-smi",
+                    f"--id={os.environ.get('CUDA_VISIBLE_DEVICES', 0)}",
+                    "--query-compute-apps=pid"
+                ],
+                encoding="utf-8",
+                stderr=subprocess.STDOUT
+            )
+            if len(result.split()) == 1:
+                break
+            cnt += 1
+            time.sleep(3)
+    
     async def verify(self, package_data: Union[bytes, str], task_id: str, op_name: str, timeout: int = 300) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Execute verification task locally.
@@ -76,6 +273,7 @@ class LocalWorker(WorkerInterface):
         Returns:
             Tuple[bool, str, Dict[str, Any]]: (success, log, artifacts)
         """
+        self.waiting_for_resources()
         try:
             with ExitStack() as stack:
                 if isinstance(package_data, (bytes, bytearray)):
@@ -156,6 +354,7 @@ class LocalWorker(WorkerInterface):
         Returns:
             Dict[str, Any]: 包含 gen_time, base_time, speedup, artifacts 等字段
         """
+        self.waiting_for_resources()
         try:
             # 2. Create temp directory and extract
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -236,24 +435,37 @@ class LocalWorker(WorkerInterface):
             return {'gen_time': float('inf'), 'base_time': 0.0, 'speedup': 0.0, 'artifacts': {}, 'error': str(e)}
     
     async def ncu_profile(self, package_data: str, task_id: str, op_name: str, timeout: int = 300) -> Dict[str, Any]:
+        self.waiting_for_resources()
         extract_dir = package_data
         script_name = f"profile_{op_name}_generation.py"
-        script_path = os.path.join(extract_dir, script_name)
+        script_path = os.path.join(extract_dir, script_name)    # extract_dir /home/zhangzizheng/aikg_logs/Task_74gs0nc1/Square_matrix_multiplication_/I1_0_0_S02_verify
         if not os.path.exists(script_path):
             return False, f"NCU profile script {script_name} not found.", {}
         
         env = os.environ.copy()
         env['PYTHONUNBUFFERED'] = '1'
 
-        python_exe = sys.executable
-        ncu_path = '/mnt/lustre-client/zhangzizheng/gpu5_install/NVIDIA-Nsight-Compute-2025.4/ncu'
-        ncu_metrics = 'gpu__time_duration.sum,sm__cycles_active.avg,dram__bytes_read.sum'
+        ncu_bin = '/mnt/lustre-client/zhangzizheng/gpu5_install/NVIDIA-Nsight-Compute-2025.4/ncu'
+        
         cmd = [
-            ncu_path, 
-            '--metrics', ncu_metrics,
-            '--target-processes', 'all',
-            python_exe, script_name
+            ncu_bin,
+            "--nvtx",
+            "--nvtx-include", "target_kernel",
+            "--csv",
+            "--page=raw",
+            "--kernel-name-base=demangled",
+            "--target-processes=all",
+            "--replay-mode=kernel",
+            "--profile-from-start=on",
+            f"--log-file={extract_dir}/ncu_temp.csv",
+            f"--metrics={NCU_METRICS}",
+            "--launch-skip=10",
+            "--launch-count=30",
+            "--force-overwrite",
+            sys.executable, script_name,
+            "--repeat 10",
         ]
+
         logger.info(f"[{task_id}] Running ncu profiling for {op_name}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -276,11 +488,13 @@ class LocalWorker(WorkerInterface):
                 logger.info(f"[{task_id}] Collected {len(artifacts)} artifact files: {list(artifacts.keys())}")
             
             if success:
-                logger.info(f"[{task_id}] NCU Proile passed.")
+                logger.info(f"[{task_id}] NCU Profile passed.")
+                ncu_df = load_ncu_metrics(f"{extract_dir}/ncu_temp.csv", None)
+                ncu_json = metrics_to_prompt(ncu_df)
             else:
                 logger.error(f"[{task_id}] NCU Profile failed with log:\n{output_log}")
                 
-            return success, output_log, artifacts
+            return success, output_log, artifacts, ncu_json
         except asyncio.TimeoutError:
             try:
                 process.kill()

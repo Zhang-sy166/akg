@@ -64,6 +64,7 @@ class LangGraphTask:
                  workflow: str = "default",
                  inspirations: Optional[list] = None, 
                  meta_prompts: Optional[str] = None,
+                 optimize_history: str = "",
                  handwrite_suggestions: Optional[list] = None):
         """初始化 LangGraphTask
         
@@ -100,6 +101,7 @@ class LangGraphTask:
         self.config = config
         self.inspirations = inspirations
         self.meta_prompts = meta_prompts
+        self.optimize_history = optimize_history
         self.handwrite_suggestions = handwrite_suggestions or []
         
         # 兼容旧代码：如果提供了device_pool，创建私有Worker
@@ -211,7 +213,6 @@ class LangGraphTask:
             logger.warning(f"Failed to initialize Coder: {e}")
             import traceback
             logger.debug(traceback.format_exc())
-        
         # Verifier
         try:
             agents['verifier'] = KernelVerifier(
@@ -301,6 +302,7 @@ class LangGraphTask:
             "agent_history": [],
             "inspirations": self.inspirations,
             "meta_prompts": self.meta_prompts,
+            "optimize_history": self.optimize_history,
             "handwrite_suggestions": self.handwrite_suggestions,
         }
         

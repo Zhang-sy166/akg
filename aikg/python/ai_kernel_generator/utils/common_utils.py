@@ -221,12 +221,9 @@ class ParserFactory:
             cls._feature_parser = cls.create_output_parser(
                 "FeatureBlock",
                 {
-                    "op_name": (str, ...),
-                    "op_type": (str, ...),
-                    "input_specs": (str, ...),
-                    "output_specs": (str, ...),
-                    "computation": (str, ...),
-                    "schedule": (dict, ...)
+                    "basic": (dict, ...),
+                    "schedule": (dict, ...),
+                    "memory": (dict, ...)
                 }
             )
         return cls._feature_parser

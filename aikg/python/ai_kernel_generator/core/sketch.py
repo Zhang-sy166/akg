@@ -79,7 +79,7 @@ class Sketch(AgentBase):
             "task_desc": remove_copyright_from_text(self.task_desc),
             "hardware_docs": get_hardware_doc(self.backend, self.arch),
             "format_instructions": self.format_instructions,
-            "sketch_guide": self.load_doc("SKETCH_DESIGN_v2.md")
+            "sketch_guide": self.load_doc("SKETCH_DESIGN_v2_from_kg.md")
         }
 
     async def run(self, task_info: dict) -> str:
@@ -135,7 +135,7 @@ class Sketch(AgentBase):
             if os.environ.get("AIKG_DEBUG_MODE", False):
                 import json
                 example_res = json.load(
-                    open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_1/impl_1_1_1_0_5e9f6847.json', 'r'))
+                    open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/20c850f9/island_0/impl_1_1_1_0_5e9f6847.json', 'r'))
                 sketch_res = example_res['sketch']
                 return sketch_res, '', ''
             

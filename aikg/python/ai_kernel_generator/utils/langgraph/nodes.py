@@ -255,11 +255,17 @@ class NodeFactory:
                         # 多 case 验证通过，清除错误
                         multi_case_error = ""
                 
+                if verify_res:
+                    logger.info(f"\n\n ============ Verify Pass Step_{current_step} ============ \n\n")
                 # Profile（如果所有验证都通过）
                 profile_res = {}
                 ncu_profile_result = ''
                 task_type = state.get("task_type", "precision_only")
                 backend = state.get("backend", "")
+                ncu_success = False
+                ncu_profile_result = ""
+                ncu_profile_prompt = ""
+                ncu_profile_reasoning = ""
                 if verify_res and task_type == "profile" and backend in ["ascend", "cuda"]:
                     task_id = state.get('task_id', '0')
                     logger.info(f"[Task {task_id}] All verifications passed, starting performance test...")
@@ -291,6 +297,12 @@ class NodeFactory:
                     profile_res=profile_res
                 )
                 
+                trace_instance.insert_agent_record(
+                    agent_name="profiler",
+                    result=str(ncu_profile_result),
+                    prompt=ncu_profile_prompt,
+                    reasoning=ncu_profile_reasoning
+                )
                 # 记录验证结果
                 if not verify_res:
                     task_id = state.get('task_id', '0')
