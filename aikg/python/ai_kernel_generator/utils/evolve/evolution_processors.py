@@ -44,6 +44,7 @@ from ai_kernel_generator.core.sketch import Sketch
 from ai_kernel_generator.utils.handwrite_loader import HandwriteLoader, HandwriteSampler
 
 from ai_kernel_generator.database.program_database import ProgramDatabase
+from ai_kernel_generator.database.early_stopping import EarlyStoppingDecision
 
 from .evolution_core import (
     save_implementation,
@@ -189,7 +190,8 @@ class InitializationProcessor:
             'round_results': [],
             'best_implementations': [],
             'total_tasks': 0,
-            'total_successful_tasks': 0
+            'total_successful_tasks': 0,
+            'parent_candidate': None,
         }
         
         # 岛屿模型特定的初始化
@@ -232,6 +234,140 @@ class TaskCreationProcessor:
     def __init__(self, runtime_config: EvolveRuntimeConfig, init_data: Dict[str, Any]):
         self.config = runtime_config
         self.init_data = init_data
+        
+    def create_evolve_designer_tasks_for_round(
+        self,
+        round_idx: int,
+        device_pool,
+        task_pool,
+        round_implementations: List[Dict[str, Any]] = None
+    ) -> List[AIKGTask]:
+        """为当前轮次创建 Designer 任务
+        
+        Args:
+            round_idx: 当前轮次索引
+            device_pool: 设备池
+            task_pool: 任务池
+            round_implementations: 当前轮次的实现列表（用于避免重复）
+            
+        Returns:
+            创建的 Designer 任务列表
+        """
+        logger.info(f"Creating Designer tasks for round {round_idx}")
+        
+        all_tasks = []
+        task_mapping = []
+        
+        inspirations_data = self._prepare_island_inspirations(round_idx, round_implementations)
+        
+        island_inspirations = inspirations_data['inspirations']
+        island_meta_prompts = inspirations_data['meta_prompts']
+        optimize_history = inspirations_data['optimize_history']
+        island_handwrite_suggestions = inspirations_data['handwrite_suggestions']
+        
+        # 进化的并行度 == 岛屿的个数
+        for island_idx in range(self.config.num_islands):
+            # 确保有足够的元素
+            while len(island_inspirations[island_idx]) < self.config.tasks_per_island:
+                island_inspirations[island_idx].append([])
+            while len(island_meta_prompts[island_idx]) < self.config.tasks_per_island:
+                island_meta_prompts[island_idx].append("")
+            
+            task_id = f"{round_idx}_{island_idx}_designer"
+            task = AIKGTask(
+                op_name=self.config.op_name,
+                task_desc=self.config.task_desc,
+                task_id=task_id,
+                backend=self.config.backend,
+                arch=self.config.arch,
+                dsl=self.config.dsl,
+                island=self.init_data['program_database'].get_island(island_idx),
+                config=self.config.config,
+                device_pool=None,  # 新写法：使用 WorkerManager
+                framework=self.config.framework,
+                task_type="profile",
+                workflow="designer_only_workflow",
+                inspirations=island_inspirations[island_idx][0],
+                meta_prompts=island_meta_prompts[island_idx][0] if island_meta_prompts[island_idx] else None,
+                optimize_history=optimize_history[island_idx],
+                handwrite_suggestions=island_handwrite_suggestions[island_idx],
+            )
+            update_task_info = {
+                "parent_id": island_inspirations[island_idx][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+            }
+            
+            task_pool.create_task(partial(task.run, update_task_info))
+            all_tasks.append(task)
+            task_mapping.append(island_idx)
+        
+        return all_tasks, task_mapping
+    
+    def create_evolve_para_tasks_for_round(
+        self,
+        round_idx: int,
+        device_pool,
+        task_pool,
+        designer_data: list[dict],
+        round_implementations: List[Dict[str, Any]] = None,
+        para_code_num: int = 3
+    ) -> List[AIKGTask]:
+        """为当前轮次创建并行任务（Coder/Verifier/Profiler
+        
+        Args:
+            round_idx: 当前轮次索引
+            device_pool: 设备池
+            task_pool: 任务池
+            round_implementations: 当前轮次的实现列表（用于避免重复）
+        """
+        logger.info(f"Creating Evolve Parallel tasks for round {round_idx}")
+        
+        all_tasks = []
+        task_mapping = []
+        
+        inspirations_data = self._prepare_island_inspirations(round_idx, round_implementations)
+        
+        island_inspirations = inspirations_data['inspirations']
+        island_meta_prompts = inspirations_data['meta_prompts']
+        optimize_history = inspirations_data['optimize_history']
+        island_handwrite_suggestions = inspirations_data['handwrite_suggestions']
+        
+        for island_idx in range(self.config.num_islands):
+            # 确保有足够的元素
+            while len(island_inspirations[island_idx]) < self.config.tasks_per_island:
+                island_inspirations[island_idx].append([])
+            while len(island_meta_prompts[island_idx]) < self.config.tasks_per_island:
+                island_meta_prompts[island_idx].append("")
+            
+            for para_idx in range(para_code_num):
+                task_id = f"{round_idx}_{island_idx}_{para_idx}"
+                task = AIKGTask(
+                    op_name=self.config.op_name,
+                    task_desc=self.config.task_desc,
+                    task_id=task_id,
+                    backend=self.config.backend,
+                    arch=self.config.arch,
+                    dsl=self.config.dsl,
+                    island=self.init_data['program_database'].get_island(island_idx),
+                    config=self.config.config,
+                    device_pool=None,  # 新写法：使用 WorkerManager
+                    framework=self.config.framework,
+                    task_type="profile",
+                    workflow="coder_only_workflow",
+                    inspirations=island_inspirations[island_idx][0],
+                    meta_prompts=island_meta_prompts[island_idx][0] if island_meta_prompts[island_idx] else None,
+                    optimize_history=optimize_history[island_idx],
+                    handwrite_suggestions=island_handwrite_suggestions[island_idx],
+                )
+                
+                update_task_info = designer_data[island_idx]
+                update_task_info["parent_id"] = island_inspirations[island_idx][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+                
+                task_pool.create_task(partial(task.run, update_task_info))
+                all_tasks.append(task)
+                task_mapping.append(island_idx)
+        
+        return all_tasks, task_mapping
+        
         
     def create_tasks_for_round(
         self,
@@ -335,7 +471,42 @@ class TaskCreationProcessor:
                         if parent_implementation is None and stored_implementations:
                             parent_implementation = random.choice(stored_implementations)
                     
-                    parent_implementation = self.init_data['program_database'].sample_island_parent(island_idx)
+                    # parent_implementation = self.init_data['program_database'].sample_island_parent(island_idx)
+                    
+                    # 第一轮迭代
+                    # if not self.init_data['parent_candidate']:
+                    #     # 是否从检查点重启进化
+                    #     if self.init_data['program_database'].is_island_empty(island_idx):
+                    #         # 未从检查点重启，进化第一轮，无父代
+                    #         parent_implementation = None
+                    #     else:
+                    #         # 从检查点重启，需要从树结构中直接搜索出父代
+                    #         self.init_data['parent_candidate'] = self.init_data['program_database'].search_parent(island_idx)
+                    #         if self.init_data['parent_candidate'] is not None:
+                    #             parent_implementation = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
+                    #                 self.init_data['parent_candidate']
+                    #             ).get_impl_info()
+                    #         else:
+                    #             raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！")                            
+                    # else:
+                    # 不是第一轮迭代
+                    # 对【父代待选】进行收敛判定
+                    early_stopping = self.init_data['program_database'].judge_early_stopping(
+                        island_idx, self.init_data['parent_candidate']
+                    )
+                    logger.info(f"fall back to get parent ... ")
+                    if early_stopping.stop is True:
+                        # fall back 回退选出父代
+                        self.init_data['parent_candidate'] = self.init_data['program_database'].fall_back_search_parent_candidate(
+                            island_idx, self.init_data['parent_candidate']
+                        )
+                    if self.init_data['parent_candidate'] is not None:
+                        parent_implementation = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
+                            self.init_data['parent_candidate']
+                        ).get_impl_info()
+                    else:
+                        raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！")
+                
                     
                     # 采样其他灵感
                     current_round_implementations = [
@@ -459,11 +630,14 @@ class TaskCreationProcessor:
                     backend=self.config.backend,
                     arch=self.config.arch,
                     dsl=self.config.dsl,
+                    island=self.init_data['program_database'].get_island(island_idx),
                     config=self.config.config,
                     device_pool=None,  # 新写法：使用 WorkerManager
                     framework=self.config.framework,
                     task_type="profile",
-                    workflow="default_workflow",
+                    workflow="evolve_workflow", 
+                    # workflow="designer_only_workflow",
+                    # workflow="default_workflow",
                     # workflow="coder_only_workflow",  # LangGraph workflow 名称
                     inspirations=island_inspirations[island_idx][pid],
                     meta_prompts=island_meta_prompts[island_idx][pid] if island_meta_prompts[island_idx] else None,
@@ -526,6 +700,178 @@ class ResultProcessor:
     def __init__(self, runtime_config: EvolveRuntimeConfig, init_data: Dict[str, Any]):
         self.config = runtime_config
         self.init_data = init_data
+        
+    async def new_evolve_process_results(
+        self,
+        results: List,
+        round_idx: int,
+        task_pool,
+        task_mapping: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """new evolve 结果处理函数，进化岛屿模式"""
+        round_implementations = []
+        
+        round_data = await self._new_evolve_process_island_results(
+            results,
+            round_idx,
+            task_pool,
+            task_mapping
+        )
+        round_implementations = round_data['implementations']
+        
+        # 更新全局统计
+        self.init_data['all_results'].extend([
+            (impl['op_name'], True) for impl in round_implementations
+        ])
+        
+        # 记录轮次结果
+        round_result = {
+            'round': round_idx,
+            'total_tasks': round_data['total_tasks'],
+            'successful_tasks': round_data['successful_tasks'],
+            'success_rate': round_data['success_rate'],
+            'implementations': round_implementations
+        }
+        self.init_data['round_results'].append(round_result)
+        
+        # 更新累计统计
+        self.init_data['total_tasks'] += round_data['total_tasks']
+        self.init_data['total_successful_tasks'] += round_data['successful_tasks']
+        cumulative_success_rate = (
+            self.init_data['total_successful_tasks'] / self.init_data['total_tasks']
+            if self.init_data['total_tasks'] > 0 else 0.0
+        )
+        if cumulative_success_rate > self.init_data['best_success_rate']:
+            self.init_data['best_success_rate'] = cumulative_success_rate
+        
+        return {
+            'round_implementations': round_implementations,
+            'round_result': round_result
+        }
+        
+    async def _new_evolve_process_island_results(
+        self,
+        results: List,
+        round_idx: int,
+        task_pool,
+        task_mapping: List[int]
+    ) -> Dict[str, Any]:
+        """new evolve 下的处理岛屿模式的结果"""
+        # 按岛屿分组结果
+        island_results = [[] for _ in range(self.config.num_islands)]
+        # results [ island_0[para_0, para_1, para_2], island_1[para_0, para_1, para_2], ... ]
+        for i, result in enumerate(results):
+            island_idx = task_mapping[i]
+            island_results[island_idx].append(result)
+        
+        all_implementations = []
+        total_success_count = 0
+        
+        # 处理每个岛屿的结果
+        for island_idx in range(self.config.num_islands):
+            # island_0[para_0, para_1, para_2]
+            current_island_results = island_results[island_idx]
+            
+            # 创建sketch agent
+            sketch_agent = Sketch(
+                op_name=self.config.op_name,
+                task_desc=self.config.task_desc,
+                dsl=self.config.dsl,
+                backend=self.config.backend,
+                arch=self.config.arch,
+                config=self.config.config
+            )
+            
+            # 收集成功任务信息
+            successful_impls = []
+            max_speedup = 0.0
+            parent_candidate = ''
+            for task_op_name, success, task_info in current_island_results:
+                if success:
+                    total_success_count += 1
+                    # 处理 profile_res 可能为 None 的情况
+                    profile_res = task_info.get("profile_res") or {
+                        'gen_time': float('inf'),
+                        'base_time': 0.0,
+                        'speedup': 0.0
+                    }
+                    
+                    impl_info = {
+                        'id': generate_unique_id(),
+                        'parent_id': task_info.get('parent_id', ''),
+                        'op_name': task_op_name,
+                        'round': round_idx,
+                        'task_id': task_info.get('task_id', ''),
+                        'unique_dir': profile_res.get('unique_dir', ''),
+                        'task_info': task_info,
+                        'profile': profile_res,
+                        'impl_code': task_info.get("coder_code", ""),
+                        'framework_code': self.config.task_desc,
+                        'backend': self.config.backend,
+                        'arch': self.config.arch,
+                        'dsl': self.config.dsl,
+                        'framework': self.config.framework,
+                        'sketch': '',
+                        'ncu_profile_result': task_info.get("ncu_profile_result", ""),
+                        'source_island': island_idx
+                    }
+                    successful_impls.append(impl_info)
+                    
+                    # 找到性能最优的 child 作为下一次【父代待选】
+                    if profile_res['speedup'] > max_speedup:
+                        max_speedup = profile_res['speedup']
+                        parent_candidate = impl_info['id']
+            # 返回【父代待选】
+            self.init_data['parent_candidate'] = parent_candidate
+            
+            # 异步生成sketch
+            if successful_impls:
+                sketch_tasks = []
+                for impl_info in successful_impls:
+                    if impl_info['impl_code']:
+                        sketch_task = partial(sketch_agent.run, impl_info['task_info'])
+                        task_pool.create_task(sketch_task)
+                        sketch_tasks.append(impl_info)
+                
+                if sketch_tasks:
+                    sketch_results = await task_pool.wait_all()
+                    task_pool.tasks.clear()
+                    
+                    for i, impl_info in enumerate(sketch_tasks):
+                        if impl_info['impl_code'] and i < len(sketch_results):
+                            sketch_content = sketch_results[i]
+                            impl_info['sketch'] = sketch_content if not isinstance(sketch_content, Exception) else ""
+                        
+                        all_implementations.append(impl_info)
+                        
+                        # 保存到岛屿存储
+                        save_implementation(impl_info, self.config.islands_storage_dirs[island_idx])
+                        await self.init_data['program_database'].insert_island(island_idx, impl_info['impl_code'], impl_info['framework_code'], impl_info['profile'],
+                                                                            impl_info['backend'], impl_info['arch'], impl_info['dsl'], impl_info)
+                        
+                        # 添加到全局最佳实现列表
+                        self.init_data['best_implementations'].append(impl_info)
+                        
+                        # 添加到岛屿实现列表
+                        self.init_data['island_impls'][island_idx].append(impl_info)
+            
+            # 更新精英库
+            if successful_impls:
+                for impl in successful_impls:
+                    impl['source_island'] = island_idx
+                self.init_data['elite_pool'].extend(successful_impls)
+                self.init_data['elite_pool'].sort(key=lambda x: x.get('profile', {}).get('gen_time', float('inf')))
+                self.init_data['elite_pool'] = self.init_data['elite_pool'][:self.config.elite_size * self.config.num_islands]
+        
+        round_total_count = len(results)
+        round_success_rate = total_success_count / round_total_count if round_total_count > 0 else 0.0
+        
+        return {
+            'implementations': all_implementations,
+            'total_tasks': round_total_count,
+            'successful_tasks': total_success_count,
+            'success_rate': round_success_rate
+        }
     
     async def process_results(
         self,
@@ -789,4 +1135,33 @@ class ResultProcessor:
             'successful_tasks': round_success_count,
             'success_rate': round_success_rate
         }
+        
+    def process_eolve_designer_results(
+        self,
+        results: List,
+        round_idx: int,
+        task_pool,
+        task_mapping: Optional[List[int]] = None
+    ) -> List[Dict[str, str]]:
+        """处理 Evolve 阶段中 Designer 任务结果，返回用于Coder任务的设计数据"""
+        designer_data = []
+        
+        # 按岛屿分组结果 [ island_0[...], island_1[...], ... ]
+        island_results = [[] for _ in range(self.config.num_islands)]
+        
+        for i, result in enumerate(results):
+            island_idx = task_mapping[i]
+            island_results[island_idx].append(result)
+        
+        for island_idx in range(self.config.num_islands):
+            current_island_results = island_results[island_idx][0]  # 一个岛屿只有一个Task
+            task_op_name, success, task_info = current_island_results
 
+            # Designer workflow 无需判断success与否，直接收集实现信息供Coder使用
+            designer_data.append({
+                "designer_code": task_info.get("designer_code", ""),
+                "designer_prompt": task_info.get("designer_prompt", ""),
+                "designer_reasoning": task_info.get("designer_reasoning", ""),
+            })
+        
+        return designer_data

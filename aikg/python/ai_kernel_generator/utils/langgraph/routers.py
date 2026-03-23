@@ -24,6 +24,22 @@ class RouterFactory:
     """路由工厂：实现智能决策逻辑"""
     
     @staticmethod
+    def create_pruner_router(config: dict):
+        """Pruner 后的路由（决定是否进入 Coder）"""
+        
+        async def route_after_designer(state: KernelGenState) -> str:
+            # 1. Pruner 决定剪枝 → Designer重新生成
+            if state.get("prun_or_not"):
+                logger.info("Pruner decided to prune, routing back to designer")
+                return "designer"
+            
+            # 2. Pruner 决定保留 → 进入 Coder
+            logger.info("Pruner decided to keep, routing to coder")
+            return "coder"
+        
+        return route_after_designer
+    
+    @staticmethod
     def create_verifier_router_with_conductor(config: dict):
         """Verifier 后的路由（决定是否需要 Conductor 分析）"""
         

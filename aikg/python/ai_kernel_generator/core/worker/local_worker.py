@@ -201,6 +201,24 @@ def metrics_to_prompt(
             data[k] = val_obj
     return json.dumps(data, ensure_ascii=False, indent=None if compact else 2)
 
+def ncu_json_get_mean(ncu_json: dict) -> Dict[str, float]:
+    """
+    从 NCU JSON 结果中提取数值型指标的平均值，返回一个字典 {metric: mean_value}。
+    ncu_json 的结构为 { kernel_name: { metric_name: [ values ... ] ... } ... }，这里我们对所有 metric 的数值列表取平均。
+    """
+    metric_value_list = {}
+    metric_value_mean = {}
+    for kernel, metric_dict in ncu_json.items():
+        for metric, values in metric_dict.items():
+            if isinstance(values, list) and all(isinstance(v, (int, float)) for v in values):
+                if metric not in metric_value_list:
+                    metric_value_list[metric] = []
+                metric_value_list[metric].extend(values)
+    for metric, values in metric_value_list.items():
+        metric_value_mean[metric] = sum(values) / len(values)
+    return metric_value_mean
+    
+
 def collect_json_artifacts(directory: str) -> Dict[str, str]:
     """
     收集目录中所有 JSON/JSONL 文件的原始内容。

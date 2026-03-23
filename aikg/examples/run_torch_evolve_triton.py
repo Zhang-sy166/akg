@@ -16,7 +16,7 @@ import asyncio
 import os
 import argparse
 # 导入evolve函数和必要的模块
-from ai_kernel_generator.core.evolve import evolve
+from ai_kernel_generator.core.evolve import new_evolve
 from ai_kernel_generator.core.async_pool.task_pool import TaskPool
 from ai_kernel_generator.core.worker.manager import register_worker
 from ai_kernel_generator.config.config_validator import load_config
@@ -87,6 +87,7 @@ async def run_torch_evolve_triton(op_name: str, task_desc: str, evolve_database:
     # 进化参数
     config.max_rounds = 10
     config.parallel_num = 1
+    config.coder_parallel_num = 3   # 每次岛屿任务并行探索Coder的数量
 
     # 岛屿模型参数
     config.num_islands = 1
@@ -122,7 +123,7 @@ async def run_torch_evolve_triton(op_name: str, task_desc: str, evolve_database:
     print(f"{'='*60}\n")
 
     # 初始化资源池
-    task_pool = TaskPool(max_concurrency=config.parallel_num)
+    task_pool = TaskPool(max_concurrency=config.coder_parallel_num)     # 让coder后续可以并行跑起来
     
     # 根据 worker_mode 设置 worker
     if worker_mode == "remote":
@@ -157,7 +158,7 @@ async def run_torch_evolve_triton(op_name: str, task_desc: str, evolve_database:
 
     # 调用evolve函数
     print("开始进化过程...")
-    evolution_result = await evolve(
+    evolution_result = await new_evolve(
         op_name=config.op_name,
         task_desc=config.task_desc,
         evolve_database=config.evolve_database,
@@ -169,6 +170,7 @@ async def run_torch_evolve_triton(op_name: str, task_desc: str, evolve_database:
         task_pool=task_pool,
         max_rounds=config.max_rounds,
         parallel_num=config.parallel_num,
+        coder_parallel_num=config.coder_parallel_num,
         num_islands=config.num_islands,
         migration_interval=config.migration_interval,
         elite_size=config.elite_size,
@@ -212,17 +214,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--op-name",
         type=str,
-        default="Conv3d_Scaling_Tanh_Multiply_SigmoidConvTranspose3d_Sum_LayerNorm_AvgPool_GELU",
+        default="Matmul_with_transposed_both",
     )
     parser.add_argument(
         "--task-desc",
         type=str,
-        default="/mnt/lustre-client/zhangzizheng/AIKG/KernelBench/KernelBench/level2/48_Conv3d_Scaling_Tanh_Multiply_Sigmoid.py",
+        default="/mnt/lustre-client/zhangzizheng/AIKG/KernelBench/KernelBench/level1/18_Matmul_with_transposed_both.py",
     )
     parser.add_argument(
         "--evolve-database",
         type=str,
-        default="level2/48_Conv3d_Scaling_Tanh_Multiply_Sigmoid",
+        default="test",
     )
     
     args = parser.parse_args()

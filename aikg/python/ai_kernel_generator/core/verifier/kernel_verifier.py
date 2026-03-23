@@ -1615,7 +1615,7 @@ if __name__ == "__main__":
             # LocalWorker: 从本地 device_pool 获取设备
             acquired_device = await self.worker.device_pool.acquire_device()
             actual_device_id = acquired_device
-            logger.info(f"[{self.op_name}] Acquired local device {actual_device_id} for entire verify process")
+            logger.info(f"[Task {task_info.get('task_id', '')}] Acquired local device {actual_device_id} for entire verify process")
         elif self.worker and isinstance(self.worker, RemoteWorker):
             # RemoteWorker: 从远程服务器获取设备
             acquired_device = await self.worker.acquire_device(task_id=self.task_id)
@@ -1687,7 +1687,7 @@ if __name__ == "__main__":
                 
                 if isinstance(self.worker, LocalWorker):
                     await self.worker.device_pool.release_device(acquired_device)
-                    logger.info(f"[{self.op_name}] Released local device {acquired_device}")
+                    logger.info(f"[Task {task_info.get('task_id', '')}] Released local device {acquired_device}")
                 elif isinstance(self.worker, RemoteWorker):
                     await self.worker.release_device(acquired_device, task_id=self.task_id)
                     logger.info(f"[{self.op_name}] Released remote device {acquired_device}")

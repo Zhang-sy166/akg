@@ -115,7 +115,6 @@ def load_ncu_metrics(
 
     return sub
 
-
 def metrics_to_prompt(
     df: pd.DataFrame,
     title: str = "Here are the GPU NCU profiling metrics:",  # Placeholder, not emitted
@@ -173,18 +172,42 @@ def metrics_to_prompt(
     for rec in df[[key_by] + value_cols].to_dict(orient="records"):
         k = str(rec.pop(key_by))
         val_obj = {ck: _safe(cv) for ck, cv in rec.items()}
+        ## convert json - value to json - list
+        for val_obj_k in val_obj.keys():
+            val_obj[val_obj_k] = [val_obj[val_obj_k]]
         if k in data:
-            if isinstance(data[k], list):
-                data[k].append(val_obj)
-            else:
-                data[k] = [data[k], val_obj]
+            # if isinstance(data[k], list):
+            #     data[k].append(val_obj)
+            # else:
+            #     data[k] = [data[k], val_obj]
+            for val_obj_k in val_obj.keys():
+                data[k][val_obj_k].extend(val_obj[val_obj_k])
         else:
             data[k] = val_obj
-
+    # import pdb;pdb.set_trace()
     return json.dumps(data, ensure_ascii=False, indent=None if compact else 2)
 
+def ncu_json_get_mean(ncu_json: dict) -> Dict[str, float]:
+    """
+    从 NCU JSON 结果中提取数值型指标的平均值，返回一个字典 {metric: mean_value}。
+    ncu_json 的结构为 { kernel_name: { metric_name: [ values ... ] ... } ... }，这里我们对所有 metric 的数值列表取平均。
+    """
+    metric_value_list = {}
+    metric_value_mean = {}
+    import pdb;pdb.set_trace()
+    for kernel, metric_dict in ncu_json.items():
+        for metric, values in metric_dict.items():
+            if isinstance(values, list) and all(isinstance(v, (int, float)) for v in values):
+                if metric not in metric_value_list:
+                    metric_value_list[metric] = []
+                metric_value_list[metric].extend(values)
+    for metric, values in metric_value_list.items():
+        metric_value_mean[metric] = sum(values) / len(values)
+    import pdb;pdb.set_trace()
+    return metric_value_mean
 
 if __name__ == '__main__':
     sub = load_ncu_metrics('debug_io/ncu_temp.csv', None)
     prompt = metrics_to_prompt(sub)
+    ncu_json_get_mean(json.loads(prompt))
     import pdb;pdb.set_trace()

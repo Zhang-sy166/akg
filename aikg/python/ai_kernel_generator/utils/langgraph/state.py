@@ -17,6 +17,33 @@
 from typing import TypedDict, Annotated, Optional, List, Dict, Any
 from operator import add
 
+def dict_reducer(left, right):
+    """合并并排序列表中的值"""
+    # 确保 left 是列表
+    if not isinstance(left, list):
+        left = [left]
+
+    # 确保 right 是列表
+    if not isinstance(right, list):
+        right = [right]
+
+    # 合并list中的dict
+    # 1. 先将两个列表中的所有字典提取出来并合并
+    merged_dict = {}
+    
+    # 遍历左列表中的所有字典，合并到merged_dict
+    for d in left:
+        if isinstance(d, dict):
+            merged_dict.update(d)
+    
+    # 遍历右列表中的所有字典，合并到merged_dict
+    for d in right:
+        if isinstance(d, dict):
+            merged_dict.update(d)
+    
+    # 2. 返回包含合并后字典的列表
+    return [merged_dict]
+
 
 class KernelGenState(TypedDict, total=False):
     """Complete state definition for kernel generation workflow."""
@@ -36,6 +63,9 @@ class KernelGenState(TypedDict, total=False):
     designer_code: Optional[str]
     designer_prompt: Optional[str]
     designer_reasoning: Optional[str]
+    
+    prun_or_not: Optional[bool]  # pruner 的决策结果
+    code_feat: Optional[str]  # pruner 中 feature extractor 的输出特征信息
     
     coder_code: Optional[str]
     coder_prompt: Optional[str]

@@ -21,6 +21,9 @@ class Island(Database):
         # maintain an online list
         self.program_list: list[Program] = []
         
+        # maintain an program list of current task round
+        self.program_list_current_round: list[Program] = []
+        
         self.move_evolve_shortcut(evolve_shortcut, evolve_database)
         
         self.basic_vector_store = EvolveVectorStore(
@@ -83,6 +86,19 @@ class Island(Database):
         program_exclude_parent_list = [p for p in self.program_list if p.get_impl_info()['id'] != parent_id]
         return [ p.get_impl_info() for p in random.choices(program_exclude_parent_list, k=sample_num)]
 
+    def get_exist_code_ir(self) -> list[str]:
+        exist_code_ir = []
+        for program in self.program_list:
+            impl_info = program.get_impl_info()
+            exist_code_ir.append(impl_info['sketch'])
+        return exist_code_ir
+    
+    def get_exist_code_feat(self) -> list[str]:
+        exist_code_feat = []
+        for program in self.program_list:
+            code_feat = program.get_impl_feat()
+            exist_code_feat.append(json.dumps(code_feat, ensure_ascii=False))
+        return exist_code_feat
     
     async def insert(self, impl_code: str, framework_code: str, profile: str, backend: str, arch: str, dsl: str, impl_info: dict):
         
@@ -111,10 +127,12 @@ class Island(Database):
         for vector_store in self.vector_stores:
             vector_store.insert(f"{md5_hash}")
         
-        # maintain an online list
+        
         info_data_path = file_path / "impl_info.json"
         with open(info_data_path, 'w', encoding='utf-8') as f:
             json.dump(impl_info, f, ensure_ascii=False, indent=2)
+        
+        # maintain an online list
         self.program_list.append(Program(file_path))
         
         # add program to offline evolve database
@@ -129,3 +147,82 @@ class Island(Database):
             if id == p.get_impl_info()['id']:
                 return p
         return None
+    
+    def get_branch_from_root(self, target_program_id: str) -> list[Program]:
+        """
+        根据指定program_id，返回从根节点到该节点的算子树分支列表（根→子→目标节点顺序）
+        
+        参数:
+            target_program_id: 目标算子的唯一id
+        返回:
+            List[Program]: 从根到目标节点的Program列表，顺序为根→父→子→目标节点；若节点不存在返回空列表
+        """
+        # 1. 初始化结果列表，先找到目标节点
+        branch = []
+        current_program = self.find_program_by_id(target_program_id)
+        
+        # 目标节点不存在，直接返回空列表
+        if not current_program:
+            return branch
+        
+        # 2. 反向溯源：从目标节点找父代，直到根节点（parent_id为空/None）
+        while current_program:
+            branch.append(current_program)
+            parent_id = current_program.get_impl_info()["parent_id"]
+            
+            # 父代id为空，说明当前是根节点，终止循环
+            if not parent_id:
+                break
+            
+            # 查找父代节点
+            current_program = self.find_program_by_id(parent_id)
+            
+            # 防呆：如果父代id存在但找不到对应节点（数据异常），终止循环
+            if not current_program:
+                break
+        
+        # 3. 反转列表，得到从根到目标节点的顺序
+        branch.reverse()
+        
+        return branch
+
+    def get_parent_id(self, program_id: str) -> str:
+        program = self.find_program_by_id(program_id)
+        for p in self.program_list:
+            if p.get_impl_info().get("id") == program.get_impl_info().get("parent_id"):
+                return p
+        return None
+    
+    def get_child_list(self, program_id: str) -> list[str]:
+        # 返回该算子的孩子节点列表，以speedup降序排序
+        program = self.find_program_by_id(program_id)
+        child_list = []
+        for p in self.program_list:
+            if p.get_impl_info().get("parent_id") == program.get_impl_info().get("id"):
+                child_list.append(p)
+        sorted_list = sorted(
+            child_list,
+            key=lambda p: p.get_impl_info().get("profile", {}).get("speedup", 0),  # 逐层get避免KeyError
+            reverse=True  # 降序排序
+        )
+        return [p.get_impl_info().get("id") for p in sorted_list]
+    
+    def has_child(self, program_id:str) -> bool:
+        program = self.find_program_by_id(program_id)
+        for p in self.program_list:
+            if p.get_impl_info().get("parent_id") == program.get_impl_info().get("id"):
+                return True
+        return False
+    
+    def get_fall_back_candidate_list(self, stop_program_id: str, fall_back_depth: int) -> list[str]:
+        parent_id = self.get_parent_id(stop_program_id)
+        while parent_id is not None and fall_back_depth > 0:
+            parent_id = self.get_parent_id(stop_program_id)
+            fall_back_depth -= 1
+        
+        if parent_id is not None:
+            child_list = self.get_child_list(parent_id)
+            # 去除有孩子节点的child node，因为其之前被探索过了已经（代表曾经回退过）
+            return [c for c in child_list if self.has_child(c) is False]
+            
+        

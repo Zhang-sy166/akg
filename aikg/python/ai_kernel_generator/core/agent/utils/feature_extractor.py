@@ -63,5 +63,11 @@ class FeatureExtractor(AgentBase):
             "hash": hash,
         }
         self.context.update(to_update_context)
+        
+        # DEBUG MODE
+        import os
+        if os.environ.get("AIKG_DEBUG_MODE", False):
+            example_res = ''.join(open('/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/debug_io/example_output/matmul_bt_feature.json', 'r').readlines())
+            return example_res, None, None
 
         return await self.run_llm(self.feature_extraction_template, self.feature_extraction_input, self.model_config.get("feature_extractor", "deepseek_r1_default"))

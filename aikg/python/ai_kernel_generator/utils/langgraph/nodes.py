@@ -107,6 +107,19 @@ class NodeFactory:
             return updates
         
         return designer_node
+
+    @staticmethod
+    def create_pruner_node(pruner_instance):
+        async def pruner_node(state: KernelGenState) -> dict:
+            task_id = state.get('task_id', '0')
+            op_name = state.get('op_name', 'unknown')
+            logger.info(f"Task {task_id}, op_name: {op_name}, current_agent: pruner")
+            prun_or_not, code_feat = await pruner_instance.run(state.get("designer_code"))
+            return {
+                "prun_or_not": prun_or_not,
+                "code_feat": code_feat
+            }
+        return pruner_node
     
     @staticmethod
     def create_coder_node(coder_instance, trace_instance):
@@ -182,7 +195,6 @@ class NodeFactory:
                 "coder_reasoning": reasoning,
                 "iteration": state.get("iteration", 0) + 1,
                 "step_count": state.get("step_count", 0) + 1,
-                "parent_id": get_parent_id(state),
                 "agent_history": ["coder"],
                 "conductor_suggestion": None  # 清除旧建议
             }

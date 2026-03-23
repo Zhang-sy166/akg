@@ -18,11 +18,14 @@ import logging
 from typing import Optional, Dict, Any, Tuple
 from ai_kernel_generator.core.trace import Trace
 from ai_kernel_generator.core.agent.designer import Designer
+from ai_kernel_generator.core.agent.pruner import Pruner
 from ai_kernel_generator.core.agent.coder import Coder
 from ai_kernel_generator.core.verifier.kernel_verifier import KernelVerifier
 from ai_kernel_generator.core.async_pool.device_pool import DevicePool
 from ai_kernel_generator.core.utils import check_task_config, check_task_type
 from ai_kernel_generator.core.worker.manager import get_worker_manager
+
+from ai_kernel_generator.database.island import Island
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ from ai_kernel_generator.workflows.default_workflow import DefaultWorkflow
 from ai_kernel_generator.workflows.coder_only_workflow import CoderOnlyWorkflow
 from ai_kernel_generator.workflows.verifier_only_workflow import VerifierOnlyWorkflow
 from ai_kernel_generator.workflows.connect_all_workflow import ConnectAllWorkflow
+from ai_kernel_generator.workflows.designer_only_workflow import DesignerOnlyWorkflow
 
 # Workflow 注册表（同时支持短名称和完整名称）
 WORKFLOW_REGISTRY = {
@@ -39,11 +43,13 @@ WORKFLOW_REGISTRY = {
     "coder_only": CoderOnlyWorkflow,
     "verifier_only": VerifierOnlyWorkflow,
     "connect_all": ConnectAllWorkflow,
+    "designer_only": DesignerOnlyWorkflow,
     # 完整名称（与 Task 的 workflow 参数兼容）
     "default_workflow": DefaultWorkflow,
     "coder_only_workflow": CoderOnlyWorkflow,
     "verifier_only_workflow": VerifierOnlyWorkflow,
     "conductor_connect_all_workflow": ConnectAllWorkflow,
+    "designer_only_workflow": DesignerOnlyWorkflow,
 }
 
 
@@ -57,6 +63,7 @@ class LangGraphTask:
                  backend: str,
                  arch: str, 
                  dsl: str, 
+                 island: Island,
                  config: dict, 
                  device_pool: Optional[DevicePool] = None, 
                  framework: str = "torch",
@@ -98,6 +105,7 @@ class LangGraphTask:
         self.framework = framework.lower()
         self.task_type = task_type
         self.device_pool = device_pool
+        self.island = island
         self.config = config
         self.inspirations = inspirations
         self.meta_prompts = meta_prompts
@@ -172,7 +180,7 @@ class LangGraphTask:
         # 编译图
         self.app = self.workflow.compile()
         
-        logger.info(f"LangGraphTask initialized with workflow: {workflow}")
+        logger.info(f"LangGraphTask {self.task_id} initialized with workflow: {workflow}")
     
     def _init_agents(self) -> dict:
         """初始化所有 Agent（使用新的 parser 配置，不依赖 workflow.yaml）"""
@@ -194,6 +202,22 @@ class LangGraphTask:
             )
         except Exception as e:
             logger.warning(f"Failed to initialize Designer: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+        
+        # Pruner
+        try:
+            agents['pruner'] = Pruner(
+                op_name=self.op_name,
+                task_desc=self.task_desc,
+                dsl=self.dsl,
+                backend=self.backend,
+                arch=self.arch,
+                island=self.island,
+                config=self.config
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize Pruner: {e}")
             import traceback
             logger.debug(traceback.format_exc())
         
