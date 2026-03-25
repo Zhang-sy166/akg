@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>树结构数据可视化工具</title>
+    <style>
+        /* 全局基础样式 */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; padding: 20px; }
+        .header-controls { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        h1 { margin-top: 0; font-size: 1.5em; color: #2c3e50; }
+        
+        /* 树结构核心样式 (目录结构) */
+        .tree-container { overflow-x: auto; padding-bottom: 50px; }
+        .tree-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .tree-item { margin-left: 40px; position: relative; list-style-type: none;}
+        
+        /* 绘制连接线 (垂直线) */
+        .tree-item::before {
+            content: ""; position: absolute; left: -20px; top: -10px; bottom: 0; border-left: 2px solid #b0bec5;
+        }
+        /* 绘制连接线 (水平线) */
+        .tree-item::after {
+            content: ""; position: absolute; left: -20px; top: 25px; border-top: 2px solid #b0bec5; width: 20px;
+        }
+        /* 处理最后一个节点的垂直线，使其不向下延伸 */
+        .tree-item:last-child::before { bottom: auto; height: 35px; }
+        
+        /* 根节点不需要左侧连接线 */
+        .tree-container > .tree-list > .tree-item { margin-left: 0; }
+        .tree-container > .tree-list > .tree-item::before,
+        .tree-container > .tree-list > .tree-item::after { display: none; }
+
+        /* 节点卡片样式 */
+        .node-box {
+            background: white; border: 1px solid #cfd8dc; border-radius: 6px; padding: 12px 15px; 
+            width: fit-content; min-width: 250px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); position: relative; z-index: 1;
+        }
+        .node-header { font-weight: bold; font-size: 1.1em; color: #1976d2; margin-bottom: 4px; }
+        .node-speed { font-size: 0.9em; color: #e64a19; margin-bottom: 8px; font-weight: bold; }
+        
+        /* 原生可展开的详情标签样式 */
+        details { background: #f8f9fa; border: 1px solid #eceff1; border-radius: 4px; padding: 5px; }
+        summary { cursor: pointer; color: #455a64; font-size: 0.9em; font-weight: bold; outline: none; user-select: none; }
+        summary:hover { color: #1976d2; }
+        pre { margin: 8px 0 0 0; font-size: 0.85em; color: #37474f; overflow-x: auto; background: #fff; padding: 8px; border-radius: 4px; border: 1px dashed #cfd8dc;}
+    </style>
+</head>
+<body>
+
+    <div class="header-controls">
+        <h1>树结构数据可视化</h1>
+        <p>请选择一个包含节点数组的 <code>.json</code> 文件，或者直接查看下方的默认调试数据：</p>
+        <input type="file" id="jsonFileInput" accept=".json" />
+    </div>
+
+    <div id="treeContainer" class="tree-container"></div>
+
+    <script>
+        // 1. 默认静态数据（用于你调试查看）
+        const staticData = [
+            { "id": "RootNode", "parent_id": null, "speedup": 1.0, "profile_dict": { "time_ms": 120.5, "memory_mb": 512 } },
+            { "id": "ChildA", "parent_id": "RootNode", "speedup": 1.5, "profile_dict": { "time_ms": 80.3, "ops": 1500, "status": "optimized" } },
+            { "id": "ChildB", "parent_id": "RootNode", "speedup": 0.8, "profile_dict": { "time_ms": 150.6, "warning": "bottleneck detected" } },
+            { "id": "GrandChildA1", "parent_id": "ChildA", "speedup": 2.1, "profile_dict": { "time_ms": 38.2 } },
+            { "id": "GrandChildA2", "parent_id": "ChildA", "speedup": 1.8, "profile_dict": { "time_ms": 44.6 } }
+        ];
+
+        // 2. 将扁平的 JSON 数组转化为层级树结构
+        function buildTree(flatData) {
+            let tree = [];
+            let lookup = {};
+            
+            // 初始化 lookup 字典，并为每个节点添加空的 children 数组
+            flatData.forEach(node => {
+                lookup[node.id] = { ...node, children: [] };
+            });
+            
+            // 组合层级关系
+            flatData.forEach(node => {
+                // 如果节点有父节点，且父节点存在于字典中
+                if (node.parent_id && lookup[node.parent_id]) {
+                    lookup[node.parent_id].children.push(lookup[node.id]);
+                } else {
+                    // 没有父节点，说明是根节点
+                    tree.push(lookup[node.id]); 
+                }
+            });
+            return tree;
+        }
+
+        // 3. 递归渲染树结构的 DOM 元素
+        function renderTree(nodes, containerElement) {
+            const listContainer = document.createElement('div');
+            listContainer.className = 'tree-list';
+            
+            nodes.forEach(node => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'tree-item';
+                
+                // 将字典格式化为漂亮的 JSON 字符串（缩进2个空格）
+                const dictStr = JSON.stringify(node.profile_dict, null, 2);
+                
+                // 拼接每个节点的 HTML，原生 <details> 标签提供小三角展开功能
+                itemDiv.innerHTML = `
+                    <div class="node-box">
+                        <div class="node-header">ID: ${node.id}</div>
+                        <div class="node-speed">Speedup: ${node.speedup} x</div>
+                        <details>
+                            <summary>查看 Profile Dict</summary>
+                            <pre>${dictStr}</pre>
+                        </details>
+                    </div>
+                `;
+                
+                // 如果该节点有子节点，递归调用 renderTree
+                if (node.children && node.children.length > 0) {
+                    renderTree(node.children, itemDiv);
+                }
+                
+                listContainer.appendChild(itemDiv);
+            });
+            
+            containerElement.appendChild(listContainer);
+        }
+
+        // 4. 初始化和事件监听
+        const treeContainer = document.getElementById('treeContainer');
+        const fileInput = document.getElementById('jsonFileInput');
+
+        // 绘制函数的包装器：清理容器 -> 转换数据 -> 渲染
+        function draw(data) {
+            treeContainer.innerHTML = ''; // 清空上一次渲染的内容
+            const treeData = buildTree(data);
+            renderTree(treeData, treeContainer);
+        }
+
+        // 监听文件上传事件
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const jsonData = JSON.parse(event.target.result);
+                    draw(jsonData);
+                } catch (error) {
+                    alert("文件解析失败，请确保它是一个规范的 JSON 文件！\n错误详情: " + error.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // 页面加载时，先绘制静态调试数据
+        draw(staticData);
+
+    </script>
+</body>
+</html>
