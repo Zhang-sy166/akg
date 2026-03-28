@@ -17,4 +17,10 @@ class Program:
 
     def __eq__(self, other):
         return other.file_dir == self.file_dir
+    
+if __name__ == '__main__':
+    pro = Program("123")
+    p = "234"
+    import pdb;pdb.set_trace()
+    pro.get_impl_info()["id"]
         

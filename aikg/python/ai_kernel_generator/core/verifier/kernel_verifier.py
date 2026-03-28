@@ -1158,8 +1158,7 @@ if __name__ == "__main__":
         from ai_kernel_generator.core.agent.profiler import Profiler
         profiler = Profiler(self.config, self.op_name, task_info['framework'], task_info['task_desc'], task_info['coder_code'], task_info['dsl'], ncu_json, task_info.get("optimize_history", ""))
         result, prompt, reasoning = await profiler.run()
-               
-        return success, result, prompt, reasoning
+        return success, result, ncu_json, prompt, reasoning
         
 
     def read_autotune_results_from_directory(self, verify_dir: str) -> str:

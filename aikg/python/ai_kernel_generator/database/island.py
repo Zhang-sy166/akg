@@ -65,7 +65,7 @@ class Island(Database):
                 des_dir = Path(self.island_database_path) / es
                 os.system(f"cp -r {src_dir} {des_dir}")      
                 # maintain an online list
-                self.program_list.append(Program(str(des_dir / "impl_info.json")))    
+                self.program_list.append(Program(str(des_dir)))    
     
     def sample_latest(self):
         if len(self.program_list) == 0:
@@ -190,7 +190,7 @@ class Island(Database):
         program = self.find_program_by_id(program_id)
         for p in self.program_list:
             if p.get_impl_info().get("id") == program.get_impl_info().get("parent_id"):
-                return p
+                return p.get_impl_info().get("id")
         return None
     
     def get_child_list(self, program_id: str) -> list[str]:

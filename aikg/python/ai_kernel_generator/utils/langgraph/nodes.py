@@ -276,6 +276,7 @@ class NodeFactory:
                 backend = state.get("backend", "")
                 ncu_success = False
                 ncu_profile_result = ""
+                ncu_profile_metric = ""
                 ncu_profile_prompt = ""
                 ncu_profile_reasoning = ""
                 if verify_res and task_type == "profile" and backend in ["ascend", "cuda"]:
@@ -287,7 +288,7 @@ class NodeFactory:
                         -1,  # device_id，Worker 模式默认使用 -1
                         config.get("profile_settings", {})
                     )
-                    ncu_success, ncu_profile_result, ncu_profile_prompt, ncu_profile_reasoning = await verifier_instance.run_ncu_profile(
+                    ncu_success, ncu_profile_result, ncu_profile_metric, ncu_profile_prompt, ncu_profile_reasoning = await verifier_instance.run_ncu_profile(
                         state, current_step
                     )
                 
@@ -326,6 +327,7 @@ class NodeFactory:
                     "verifier_error": verify_log,
                     "profile_res": profile_res,  # 保留空字典，不转成 None,
                     "ncu_profile_result": ncu_profile_result,
+                    "ncu_profile_metric": ncu_profile_metric,
                     "multi_case_error": multi_case_error,  # 更新 multi_case_error
                     "step_count": state.get("step_count", 0) + 1,
                     "agent_history": ["verifier"]

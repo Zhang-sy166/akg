@@ -92,6 +92,9 @@ class ProgramDatabase():
     def is_island_empty(self, island_idx: int) -> bool:
         return len(self.island_list[island_idx].program_list) == 0
     
+    def is_evolve_from_shortcut(self) -> bool:
+        return any(len(island.program_list) > 0 for island in self.island_list)
+    
     def die_programs(self):
         # TODO
         logger.info("Make programs die of every island")
@@ -138,7 +141,7 @@ class ProgramDatabase():
             depth += 1
         # 2. 调用早停判断接口，返回是否早停
         early_stopping_judger = BranchEarlyStoppingJudge()
-        early_stopping_decision = early_stopping_judger.judge(code_list)
+        early_stopping_decision = early_stopping_judger.judge(iter_record_list)
         return early_stopping_decision
         
     def fall_back_search_parent_candidate(self, island_idx: int, stop_program_id: str) -> str | None:

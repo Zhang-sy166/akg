@@ -292,8 +292,10 @@ class TaskCreationProcessor:
                 optimize_history=optimize_history[island_idx],
                 handwrite_suggestions=island_handwrite_suggestions[island_idx],
             )
+            
+            # island_inspirations shape 岛屿数 岛内并行code数(对于designer来说就是1) 采样得到inspir数(0号是父节点)
             update_task_info = {
-                "parent_id": island_inspirations[island_idx][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+                "parent_id": island_inspirations[island_idx][0][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
             }
             
             task_pool.create_task(partial(task.run, update_task_info))
@@ -360,7 +362,7 @@ class TaskCreationProcessor:
                 )
                 
                 update_task_info = designer_data[island_idx]
-                update_task_info["parent_id"] = island_inspirations[island_idx][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+                update_task_info["parent_id"] = island_inspirations[island_idx][0][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
                 
                 task_pool.create_task(partial(task.run, update_task_info))
                 all_tasks.append(task)
@@ -436,7 +438,10 @@ class TaskCreationProcessor:
         island_meta_prompts = [[] for _ in range(self.config.num_islands)]
         island_handwrite_suggestions = [[] for _ in range(self.config.num_islands)]
         
-        if round_idx == 1:
+        # 是否从检查点重启
+        evolve_from_checkpoint = round_idx == 1 and self.init_data['program_database'].is_evolve_from_shortcut()
+        
+        if round_idx == 1 and not evolve_from_checkpoint:
             # 第一轮：初始化空灵感
             for island_idx in range(self.config.num_islands):
                 island_inspirations[island_idx] = [[] for _ in range(self.config.tasks_per_island)]
@@ -489,23 +494,33 @@ class TaskCreationProcessor:
                     #         else:
                     #             raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！")                            
                     # else:
-                    # 不是第一轮迭代
-                    # 对【父代待选】进行收敛判定
-                    early_stopping = self.init_data['program_database'].judge_early_stopping(
-                        island_idx, self.init_data['parent_candidate']
-                    )
-                    logger.info(f"fall back to get parent ... ")
-                    if early_stopping.stop is True:
-                        # fall back 回退选出父代
-                        self.init_data['parent_candidate'] = self.init_data['program_database'].fall_back_search_parent_candidate(
+                    if evolve_from_checkpoint:
+                        # 从检查点重启，需要从树结构中直接搜索出父代
+                        self.init_data['parent_candidate'] = self.init_data['program_database'].search_parent(island_idx)
+                        if self.init_data['parent_candidate'] is not None:
+                            parent_implementation = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
+                                self.init_data['parent_candidate']
+                            ).get_impl_info()
+                        else:
+                            raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！") 
+                    else:
+                        # 不是第一轮迭代
+                        # 对【父代待选】进行收敛判定
+                        early_stopping = self.init_data['program_database'].judge_early_stopping(
                             island_idx, self.init_data['parent_candidate']
                         )
-                    if self.init_data['parent_candidate'] is not None:
-                        parent_implementation = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
-                            self.init_data['parent_candidate']
-                        ).get_impl_info()
-                    else:
-                        raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！")
+                        if early_stopping.stop is True:
+                            # fall back 回退选出父代
+                            logger.info(f"fall back to get parent ... ")
+                            self.init_data['parent_candidate'] = self.init_data['program_database'].fall_back_search_parent_candidate(
+                                island_idx, self.init_data['parent_candidate']
+                            )
+                        if self.init_data['parent_candidate'] is not None:
+                            parent_implementation = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
+                                self.init_data['parent_candidate']
+                            ).get_impl_info()
+                        else:
+                            raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！")
                 
                     
                     # 采样其他灵感
@@ -813,6 +828,7 @@ class ResultProcessor:
                         'framework': self.config.framework,
                         'sketch': '',
                         'ncu_profile_result': task_info.get("ncu_profile_result", ""),
+                        'ncu_profile_metric': task_info.get("ncu_profile_metric", ""),
                         'source_island': island_idx
                     }
                     successful_impls.append(impl_info)

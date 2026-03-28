@@ -101,7 +101,7 @@ class BranchEarlyStoppingJudge:
         """
         输入某个分支的历史记录，输出是否应停止当前分支探索。
         """
-
+    
         reasons = []
         details = {}
 

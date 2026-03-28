@@ -87,6 +87,11 @@ class Pruner(AgentBase):
         )
         code_feat, _, _ = await feature_extractor.run()
         
+        # DEBUG MODE
+        import os
+        if os.environ.get("AIKG_DEBUG_MODE", False):
+            return False, code_feat
+        
         # 获取历史生成的代码 IR 和 特征
         exist_code_ir = self.island.get_exist_code_ir()
         exist_code_feat = self.island.get_exist_code_feat()

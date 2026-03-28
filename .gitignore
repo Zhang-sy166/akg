@@ -72,3 +72,4 @@ aikg/triton_database/
 aikg/evolve_database/
 aikg/program_database/
 dsa_inputs/
+tokens_cnt.csv

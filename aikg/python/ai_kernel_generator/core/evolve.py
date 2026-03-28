@@ -336,7 +336,7 @@ async def new_evolve(
         
         # 处理结果
         # results [ island_0[para_0, para_1, para_2], island_1[para_0, para_1, para_2], ... ]
-        round_data = await result_processor.process_results(
+        round_data = await result_processor.new_evolve_process_results(
             results,
             round_idx,
             task_pool,

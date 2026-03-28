@@ -78,6 +78,7 @@ class KernelGenState(TypedDict, total=False):
     profile_res: Optional[Dict[str, Any]]
     optimize_history: str
     ncu_profile_result: str
+    ncu_profile_metric: str
     
     # === 多 case 验证 ===
     multi_case_error: Optional[str]
