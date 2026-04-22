@@ -114,11 +114,25 @@ class NodeFactory:
             task_id = state.get('task_id', '0')
             op_name = state.get('op_name', 'unknown')
             logger.info(f"Task {task_id}, op_name: {op_name}, current_agent: pruner")
-            prun_or_not, code_feat = await pruner_instance.run(state.get("designer_code"))
-            return {
+            designer_code = state.get("designer_code", "")
+            prun_or_not, code_feat = await pruner_instance.run(designer_code)
+
+            updates = {
                 "prun_or_not": prun_or_not,
                 "code_feat": code_feat
             }
+						# 新加的代码
+            if prun_or_not: # 需要剪枝
+                updates["last_pruned_sketch"] = designer_code
+                logger.info(
+                    f"[Task {task_id}] Pruner 决定剪枝，剪枝代码片段: {designer_code[:100]}...",
+                )
+            else:
+                updates["last_pruned_sketch"] = ""
+                logger.info(
+                    f"[Task {task_id}] Pruner 决定保留，重试次数清零"
+                )
+            return updates
         return pruner_node
     
     @staticmethod
