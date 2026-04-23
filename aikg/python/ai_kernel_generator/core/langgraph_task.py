@@ -328,6 +328,7 @@ class LangGraphTask:
             "meta_prompts": self.meta_prompts,
             "optimize_history": self.optimize_history,
             "handwrite_suggestions": self.handwrite_suggestions,
+            "last_pruned_sketch": "",
         }
         
         # 合并初始代码（如果有）
