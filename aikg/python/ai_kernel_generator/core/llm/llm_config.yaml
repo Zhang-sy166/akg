@@ -1,6 +1,12 @@
 # 模型预设配置
 # 每个预设包含完整的模型参数
 
+claude-sonnet-4-6:
+  api_base: "https://gw.claudeapi.com"
+  model: "claude-sonnet-4-6"
+  api_key_env: "AIKG_CLAUDE_API_KEY"
+  max_tokens: 30000
+
 smallai_o3:
   api_base: "https://ai98.vip/v1"
   model: "o3"

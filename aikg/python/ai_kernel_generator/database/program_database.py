@@ -52,7 +52,7 @@ class ProgramDatabase():
             # island_evolve_shortcut = self.evolve_from_shortcut(evolve_config.evolve_database, evolve_config.num_islands)
             island_evolve_shortcut = [[] * evolve_config.num_islands] # disable evolve from checkpoint/shortcut
             self.island_list = [Island(i, self.database_path, database_config, island_evolve_shortcut[i], evolve_config.evolve_database) for i in range(evolve_config.num_islands)]
-            self.fall_back_depth = 3    # 回退深度
+            self.fallback_depth = 3    # 回退深度
             
             self._initialized = True
         finally:
@@ -120,6 +120,15 @@ class ProgramDatabase():
         # TODO
         logger.info(f"insert program into island_{island_idx}")
         await self.island_list[island_idx].insert(impl_code, framework_code, profile, backend, arch, dsl, impl_info)
+        # 判断是否收敛
+        early_stopping_decision = self.judge_early_stopping(island_idx, impl_info['id'])
+        # 如果收敛就更新 impl_info 里面的收敛原因
+        if early_stopping_decision.stop:
+            self.update_early_stopping_reason(island_idx, impl_info['id'], '\n'.join(early_stopping_decision.reasons))
+        logger.info(f"Early Stopping Score of current kernel {int(100 * early_stopping_decision.score)}")
+    
+    def update_early_stopping_reason(self, island_idx: int, program_id: str, reason: str):
+        self.island_list[island_idx].update_early_stopping_reason(program_id, reason)
     
     def judge_early_stopping(self, island_idx: int, target_id: str) -> EarlyStoppingDecision:
         # TODO
@@ -144,23 +153,23 @@ class ProgramDatabase():
         early_stopping_decision = early_stopping_judger.judge(iter_record_list)
         return early_stopping_decision
         
-    def fall_back_search_parent_candidate(self, island_idx: int, stop_program_id: str) -> str | None:
+    def fallback_search_parent_candidate(self, island_idx: int, stop_program_id: str) -> str | None:
         """
         父代候选 stop_program_id 被判定收敛需要停止在其分支继续进化时调用该函数
         从 stop_program_id 所在分支回退，寻找可能的父代候选
         对可能的父代候选进行收敛判定，若不收敛，则返回，若仍收敛则持续回退。
         """
-        fall_back_depth = self.fall_back_depth
-        fall_back_candidate_list = self.island_list[island_idx].get_fall_back_candidate_list(
-            stop_program_id, fall_back_depth
+        fallback_depth = self.fallback_depth
+        fallback_candidate_list = self.island_list[island_idx].get_fallback_candidate_list(
+            stop_program_id, fallback_depth
         )  # [program_id:str, ... ]
         # 若回退到的【父代候选】收敛，则持续回退；持续回退时，步长固定为1；
-        while len(fall_back_candidate_list) != 0:
-            for candidate in fall_back_candidate_list:
-                if self.judge_early_stopping(island_idx, candidate).stop is False:
+        while len(fallback_candidate_list) != 0:
+            for candidate in fallback_candidate_list:
+                if self.get_island(island_idx).get_program_by_id(candidate).get_impl_info().get("early_stopping_reason", None):
                     return candidate
-            fall_back_depth = 1
-            fall_back_candidate_list = self.island_list[island_idx].get_fall_back_candidate_list(stop_program_id, fall_back_depth)
+            fallback_depth = 1
+            fallback_candidate_list = self.island_list[island_idx].get_fallback_candidate_list(stop_program_id, fallback_depth)
         return None
     
     def search_parent(self, island_idx: int) -> str:

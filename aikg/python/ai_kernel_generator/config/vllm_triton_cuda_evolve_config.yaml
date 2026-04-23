@@ -1,14 +1,14 @@
 # Model preset configuration
-agent_model_config:
-  designer: deepseek_r1_default
-  coder: deepseek_r1_default
-  profiler: deepseek_r1_default
-  conductor: deepseek_r1_default
-  feature_extractor: deepseek_r1_default
-  api_generator: deepseek_r1_default
-  sketch: deepseek_r1_default
-  selector: deepseek_r1_default
-  test_case_generator: deepseek_r1_default
+# agent_model_config:
+#   designer: deepseek_r1_default
+#   coder: deepseek_r1_default
+#   profiler: deepseek_r1_default
+#   conductor: deepseek_r1_default
+#   feature_extractor: deepseek_r1_default
+#   api_generator: deepseek_r1_default
+#   sketch: deepseek_r1_default
+#   selector: deepseek_r1_default
+#   test_case_generator: deepseek_r1_default
 
 # agent_model_config:
 #   designer: smallai_o3
@@ -21,17 +21,17 @@ agent_model_config:
 #   selector: smallai_o3
 #   test_case_generator: smallai_o3
 
-# agent_model_config:
-#   designer: smallai_claude-sonnet-4-5-thinking-all
-#   coder: smallai_claude-sonnet-4-5-thinking-all
-#   profiler: smallai_claude-sonnet-4-5-thinking-all
-#   conductor: smallai_claude-sonnet-4-5-thinking-all
-#   feature_extractor: smallai_claude-sonnet-4-5-thinking-all
-#   api_generator: smallai_claude-sonnet-4-5-thinking-all
-#   sketch: smallai_claude-sonnet-4-5-thinking-all
-#   selector: smallai_claude-sonnet-4-5-thinking-all
-#   test_case_generator: smallai_claude-sonnet-4-5-thinking-all
-#   default: smallai_claude-sonnet-4-5-thinking-all
+agent_model_config:
+  designer: claude-sonnet-4-6
+  coder: claude-sonnet-4-6
+  profiler: claude-sonnet-4-6
+  conductor: claude-sonnet-4-6
+  feature_extractor: claude-sonnet-4-6
+  api_generator: claude-sonnet-4-6
+  sketch: claude-sonnet-4-6
+  selector: claude-sonnet-4-6
+  test_case_generator: claude-sonnet-4-6
+  default: claude-sonnet-4-6
 
 # Log configuration
 log_dir: "~/aikg_logs"

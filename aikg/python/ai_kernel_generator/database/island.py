@@ -141,6 +141,14 @@ class Island(Database):
         os.system(f"cp -rf {src_dir} {des_dir}")       
         
         logger.info(f"Operator implementation inserted successfully, file path: {file_path}")
+    
+    def update_early_stopping_reason(self, program_id: str, reason: str):
+        program = self.find_program_by_id(program_id)
+        if program:
+            impl_info = program.get_impl_info()
+            impl_info["early_stopping_reason"] = reason
+            with open(program.file_dir / "impl_info.json", 'w', encoding='utf-8') as f:
+                json.dump(impl_info, f, ensure_ascii=False, indent=2)
 
     def find_program_by_id(self, id: str) -> Program:
         for p in self.program_list:
@@ -214,11 +222,11 @@ class Island(Database):
                 return True
         return False
     
-    def get_fall_back_candidate_list(self, stop_program_id: str, fall_back_depth: int) -> list[str]:
+    def get_fallback_candidate_list(self, stop_program_id: str, fallback_depth: int) -> list[str]:
         parent_id = self.get_parent_id(stop_program_id)
-        while parent_id is not None and fall_back_depth > 0:
+        while parent_id is not None and fallback_depth > 0:
             parent_id = self.get_parent_id(stop_program_id)
-            fall_back_depth -= 1
+            fallback_depth -= 1
         
         if parent_id is not None:
             child_list = self.get_child_list(parent_id)
