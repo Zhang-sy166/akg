@@ -105,6 +105,6 @@ class Pruner(AgentBase):
         # 如果存在相似度分数超过0.75，则认为生成的代码与历史代码过于相似，需要剪枝
         prun_or_not = any(score > 0.75 for score in weighted_similarity_scores)
         logger.info(f"Pruner Score of current IR: {weighted_similarity_scores}")
-        prun_or_not = False  # TODO: 目前先关闭剪枝功能，后续根据实际效果调整
+        # prun_or_not = False  # TODO: 目前先关闭剪枝功能，后续根据实际效果调整
 
         return prun_or_not, code_feat

@@ -236,6 +236,7 @@ class Designer(AgentBase):
             "enable_llm_range_inference": self.config.get("enable_llm_range_inference", False),  # LLM推理模式
             "enable_hint_mode": enable_hint_mode,  # Hint模式
             "has_hint": has_hint,  # 是否检测到hint
+            "last_pruned_sketch": task_info.get("last_pruned_sketch", ""), # 从task_info获取上一次草图
         }
 
         # 执行LLM生成前更新context，确保正确性
