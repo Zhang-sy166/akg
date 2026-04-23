@@ -45,6 +45,6 @@ def extract_impl_info(root_dir, output_file):
 
 # 使用示例
 if __name__ == "__main__":
-    target_root = "../evolve_database/test"  # 替换为你的实际目录路径
-    output_name = "../evolve_database/test/extracted_impl_data.json"
+    target_root = "/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/evolve_database/test_bk"  # 替换为你的实际目录路径
+    output_name = "extracted_impl_data.json"
     extract_impl_info(target_root, output_name)

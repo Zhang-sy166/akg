@@ -192,6 +192,7 @@ class InitializationProcessor:
             'total_tasks': 0,
             'total_successful_tasks': 0,
             'parent_candidate': None,
+            'fallback_id': None
         }
         
         # 岛屿模型特定的初始化
@@ -295,7 +296,8 @@ class TaskCreationProcessor:
             
             # island_inspirations shape 岛屿数 岛内并行code数(对于designer来说就是1) 采样得到inspir数(0号是父节点)
             update_task_info = {
-                "parent_id": island_inspirations[island_idx][0][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+                "parent_id": island_inspirations[island_idx][0][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None,
+                "fallback_id": self.init_data.get("fallback_id", ""),
             }
             
             task_pool.create_task(partial(task.run, update_task_info))
@@ -363,6 +365,7 @@ class TaskCreationProcessor:
                 
                 update_task_info = designer_data[island_idx]
                 update_task_info["parent_id"] = island_inspirations[island_idx][0][0]["id"] if len(island_inspirations[island_idx][0]) != 0 else None
+                update_task_info["fallback_id"] = self.init_data.get("fallback_id", "")
                 
                 task_pool.create_task(partial(task.run, update_task_info))
                 all_tasks.append(task)
@@ -505,14 +508,15 @@ class TaskCreationProcessor:
                             raise ValueError("回退搜索停止，进化停止，没有可以进化的父代了！") 
                     else:
                         # 不是第一轮迭代
-                        # 对【父代待选】进行收敛判定
-                        early_stopping = self.init_data['program_database'].judge_early_stopping(
-                            island_idx, self.init_data['parent_candidate']
-                        )
-                        if early_stopping.stop is True:
-                            # fall back 回退选出父代
-                            logger.info(f"fall back to get parent ... ")
-                            self.init_data['parent_candidate'] = self.init_data['program_database'].fall_back_search_parent_candidate(
+                        # 查看【父代待选】的收敛情况
+                        early_stopping_reason = self.init_data['program_database'].get_island(island_idx).find_program_by_id(
+                                self.init_data['parent_candidate']
+                        ).get_impl_info().get("early_stopping_reason", None)
+                        if early_stopping_reason:
+                            # Fallback 回退选出父代
+                            self.init_data['fallback_id'] = self.init_data['parent_candidate']
+                            logger.info(f"Fallback to get parent ... ")
+                            self.init_data['parent_candidate'] = self.init_data['program_database'].fallback_search_parent_candidate(
                                 island_idx, self.init_data['parent_candidate']
                             )
                         if self.init_data['parent_candidate'] is not None:
@@ -814,6 +818,7 @@ class ResultProcessor:
                     impl_info = {
                         'id': generate_unique_id(),
                         'parent_id': task_info.get('parent_id', ''),
+                        'fallback_id': task_info.get('fallback_id', ''),
                         'op_name': task_op_name,
                         'round': round_idx,
                         'task_id': task_info.get('task_id', ''),

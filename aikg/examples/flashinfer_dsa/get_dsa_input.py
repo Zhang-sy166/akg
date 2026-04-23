@@ -50,7 +50,7 @@ def get_dsa_input():
     input_ret_list = []
     torch.manual_seed(0)
     for input in input_list:
-        device = 'cuda:1'
+        device = 'cuda'
         input_json = json.loads(input)
         
         # static value 
@@ -78,8 +78,8 @@ def get_dsa_input():
         k_fp8 = torch.randn(num_pages, page_size, index_head_dim,
                                         device=device, dtype=torch.float32).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
         k_scale = torch.randn(num_pages, page_size, 1, device=device, dtype=torch.float32) * 0.1
-        k_fp8_bytes = k_fp8.view(torch.uint8).view(num_pages, -1) # [num_pages, page_size * 1 * 128]
-        k_scale_bytes = k_scale.view(torch.uint8).view(num_pages, -1) # [num_pages, page_size * 4]
+        k_fp8_bytes = k_fp8.view(torch.int8).view(num_pages, -1) # [num_pages, page_size * 1 * 128]
+        k_scale_bytes = k_scale.view(torch.int8).view(num_pages, -1) # [num_pages, page_size * 4]
         k_index_cache_fp8 = torch.cat([k_fp8_bytes, k_scale_bytes], dim=-1).view(num_pages, page_size, 1, -1) # [num_pages, page_size, 1, head_dim_with_scale]
         
         weights = torch.randn(batch_size, num_index_heads, device=device, dtype=torch.float32)
@@ -87,6 +87,59 @@ def get_dsa_input():
         input_ret_list.append((q_index_fp8, k_index_cache_fp8, weights, seq_lens, block_table))
     return input_ret_list
 
+def get_dsa_input_new():
+    input_list = open('/mnt/lustre-client/zhangzizheng/AIKG/flash_infer_datasets/workloads/dsa_paged/dsa_topk_indexer_fp8_h64_d128_topk2048_ps64.jsonl', 'r').readlines()
+    input_ret_list = []
+    torch.manual_seed(0)
+    for input in input_list:
+        device = 'cuda'
+        input_json = json.loads(input)
+        
+        # static value 
+        num_index_heads = 64
+        index_head_dim = 128
+        page_size = 64
+        
+        # var value
+        batch_size = input_json['workload']['axes']['batch_size']
+        max_num_pages = input_json['workload']['axes']['max_num_pages']
+        num_pages = input_json['workload']['axes']['num_pages']
+        
+        # load from tensor
+        seq_lens_url = None
+        block_table_url = None
+        # import pdb;pdb.set_trace()
+        seq_lens = load_safetensor_from_url(seq_lens_url, input_json['workload']['inputs']['seq_lens']['path'].split('/')[-1], 'seq_lens', '/mnt/lustre-client/zhangzizheng/AIKG/flash_infer_datasets/blob/workloads/dsa_paged/dsa_topk_indexer_fp8_h64_d128_topk2048_ps64')
+        block_table = load_safetensor_from_url(block_table_url, input_json['workload']['inputs']['block_table']['path'].split('/')[-1], 'block_table', '/mnt/lustre-client/zhangzizheng/AIKG/flash_infer_datasets/blob/workloads/dsa_paged/dsa_topk_indexer_fp8_h64_d128_topk2048_ps64')
+        seq_lens = seq_lens.to(device)
+        block_table = block_table.to(device)
+        
+        # radom tensor
+        q_index_fp8 = torch.randn(batch_size, num_index_heads, index_head_dim, 
+                                device=device, dtype=torch.float32).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
+        
+        k_fp8 = torch.randn(num_pages, page_size, index_head_dim,
+                                        device=device, dtype=torch.float32).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
+        k_scale = torch.randn(num_pages, page_size, 1, device=device, dtype=torch.float32) * 0.1
+        k_fp8_bytes = k_fp8.view(torch.int8).view(num_pages, -1) # [num_pages, page_size * 1 * 128]
+        k_scale_bytes = k_scale.view(torch.int8).view(num_pages, -1) # [num_pages, page_size * 4]
+        k_index_cache_fp8 = torch.cat([k_fp8_bytes, k_scale_bytes], dim=-1).view(num_pages, page_size, 1, -1) # [num_pages, page_size, 1, head_dim_with_scale]
+        
+        weights = torch.randn(batch_size, num_index_heads, device=device, dtype=torch.float32)
+        
+        input_ret_list.append((q_index_fp8, k_index_cache_fp8, weights, seq_lens, block_table))
+        
+        q_index_fp8_new = torch.load("q_index_fp8.pt")
+        k_index_cache_fp8_new = torch.load("k_index_cache_fp8.pt")
+        weights_new = torch.load("weights.pt")
+        seq_lens_new = torch.load("seq_lens.pt")
+        block_table_new = torch.load("block_table.pt")
+        # import pdb;pdb.set_trace()
+        input_ret_list.append((q_index_fp8_new, k_index_cache_fp8_new, weights_new, seq_lens_new, block_table_new))
+        break
+    return input_ret_list
+
 if __name__ == '__main__':
-    out = get_dsa_input()
+    out = get_dsa_input_new()
+    import pdb;pdb.set_trace()
     

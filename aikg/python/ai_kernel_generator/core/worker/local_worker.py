@@ -256,6 +256,9 @@ class LocalWorker(WorkerInterface):
         self.backend = backend
 
     def waiting_for_resources(self):
+        # disable waiting 
+        return
+    
         import time
         cnt = 0
         while True:

@@ -52,6 +52,7 @@ class Model(nn.Module):
         assert num_index_heads == 64
         assert index_head_dim == 128
         assert page_size == 64
+        assert topk == 2048
 
         device = q_index_fp8.device
 
@@ -105,33 +106,19 @@ class Model(nn.Module):
 
         return (topk_indices,)
 
-batch_size = 2
 num_index_heads = 64
 index_head_dim = 128
 page_size = 64
 topk = 2048
-max_num_pages = 4
-num_pages = 4
-kv_cache_num_heads = 1
-head_dim_with_scale = 132
 
 def get_inputs():
     device = 'cuda'
     
-    q_index_fp8 = torch.randn(batch_size, num_index_heads, index_head_dim, 
-                              device=device, dtype=torch.float32).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
-    k_fp8 = torch.randn(num_pages, page_size, index_head_dim,
-                                    device=device, dtype=torch.float32).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
-    k_scale = torch.randn(num_pages, page_size, 1, device=device, dtype=torch.float32) * 0.1
-    k_fp8_bytes = k_fp8.view(torch.uint8).view(num_pages, -1) # [num_pages, page_size * 1 * 128]
-    k_scale_bytes = k_scale.view(torch.uint8).view(num_pages, -1) # [num_pages, page_size * 4]
-    k_index_cache_fp8 = torch.cat([k_fp8_bytes, k_scale_bytes], dim=-1).view(num_pages, page_size, 1, -1) # [num_pages, page_size, 1, head_dim_with_scale]
-    
-    weights = torch.randn(batch_size, num_index_heads, device=device, dtype=torch.float32)
-    
-    seq_lens = torch.tensor([100, 80], device=device, dtype=torch.int32)
-    
-    block_table = torch.tensor([[0, 1, -1, -1], [2, 3, -1, -1]], device=device, dtype=torch.int32)
+    q_index_fp8 = torch.load("/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/flashinfer_dsa/q_index_fp8.pt").to(device)
+    k_index_cache_fp8 = torch.load("/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/flashinfer_dsa/k_index_cache_fp8.pt").to(device)
+    weights = torch.load("/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/flashinfer_dsa/weights.pt").to(device)
+    seq_lens = torch.load("/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/flashinfer_dsa/seq_lens.pt").to(device)
+    block_table = torch.load("/mnt/lustre-client/zhangzizheng/AIKG/akg/aikg/examples/flashinfer_dsa/block_table.pt").to(device)
     return [q_index_fp8, k_index_cache_fp8, weights, seq_lens, block_table]
 
 def get_init_inputs():

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>树结构数据可视化工具 (Top-Down)</title>
+    <style>
+        /* 全局基础样式 */
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #f4f7f6; 
+            color: #333; 
+            padding: 20px; 
+            margin: 0;
+        }
+        .header-controls { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); 
+            margin-bottom: 20px; 
+        }
+        h1 { margin-top: 0; font-size: 1.5em; color: #2c3e50; }
+        
+        /* 树结构容器，允许内容过宽时横向滚动 */
+        .tree-container { 
+            width: 100%;
+            overflow-x: auto; 
+            overflow-y: auto;
+            padding-bottom: 50px; 
+            text-align: center; /* 居中整个树 */
+        }
+
+        /* ---------------------------------------------------
+           核心 CSS 树图样式 (从上到下的拓扑图)
+           --------------------------------------------------- */
+        .tree {
+            display: inline-block;
+        }
+        .tree ul {
+            padding-top: 20px; 
+            position: relative;
+            display: flex;
+            justify-content: center;
+            padding-left: 0;
+            margin: 0;
+        }
+        .tree li {
+            float: left; text-align: center;
+            list-style-type: none;
+            position: relative;
+            padding: 20px 5px 0 5px;
+            transition: all 0.5s;
+        }
+
+        /* 使用 ::before 和 ::after 绘制连接兄弟节点的横线 */
+        .tree li::before, .tree li::after {
+            content: '';
+            position: absolute; top: 0; right: 50%;
+            border-top: 2px solid #90a4ae;
+            width: 50%; height: 20px;
+        }
+        .tree li::after {
+            right: auto; left: 50%;
+            border-left: 2px solid #90a4ae;
+        }
+
+        /* 清除首尾子节点多余的连接线 */
+        .tree li:only-child::after, .tree li:only-child::before {
+            display: none;
+        }
+        .tree li:only-child { padding-top: 0; }
+        .tree li:first-child::before, .tree li:last-child::after {
+            border: 0 none;
+        }
+        /* 为首尾节点的连线增加圆角效果 */
+        .tree li:last-child::before {
+            border-right: 2px solid #90a4ae;
+            border-radius: 0 5px 0 0;
+        }
+        .tree li:first-child::after {
+            border-radius: 5px 0 0 0;
+        }
+
+        /* 向下连接子节点列表的垂直线 */
+        .tree ul ul::before {
+            content: '';
+            position: absolute; top: 0; left: 50%;
+            border-left: 2px solid #90a4ae;
+            width: 0; height: 20px;
+            transform: translateX(-50%);
+        }
+
+        /* ---------------------------------------------------
+           节点卡片样式 (紧凑型椭圆/圆角矩形)
+           --------------------------------------------------- */
+        .node-box {
+            background: white; 
+            border: 2px solid #455a64; 
+            border-radius: 20px; /* 产生圆角/类似椭圆的效果 */
+            padding: 10px 15px; 
+            min-width: 120px;
+            display: inline-block;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
+            position: relative; 
+            z-index: 1;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .node-box:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+            border-color: #1976d2;
+        }
+
+        .node-header { font-weight: bold; font-size: 1em; color: #333; margin-bottom: 2px; }
+        .node-speed { font-size: 0.85em; color: #e64a19; margin-bottom: 4px; font-weight: bold; }
+        
+        /* 紧凑的原生可展开的详情标签 */
+        details { 
+            text-align: left;
+            background: #f8f9fa; 
+            border-radius: 8px; 
+            margin-top: 5px;
+        }
+        summary { 
+            cursor: pointer; color: #546e7a; font-size: 0.8em; 
+            font-weight: bold; outline: none; user-select: none;
+            padding: 2px 5px;
+        }
+        summary:hover { color: #1976d2; }
+        /* 隐藏原生箭头并自定义 */
+        summary::-webkit-details-marker { display: none; }
+        summary::before { content: '►'; display: inline-block; margin-right: 4px; font-size: 0.8em; transition: transform 0.2s;}
+        details[open] summary::before { transform: rotate(90deg); }
+        
+        pre { 
+            margin: 5px 0 0 0; font-size: 0.75em; color: #37474f; 
+            text-align: left; overflow-x: auto; background: #fff; 
+            padding: 6px; border-radius: 4px; border: 1px dashed #cfd8dc;
+            max-width: 200px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-controls">
+        <h1>树结构数据可视化 (Top-Down)</h1>
+        <p>请选择一个包含节点数组的 <code>.json</code> 文件，或者直接查看下方的默认调试数据：</p>
+        <input type="file" id="jsonFileInput" accept=".json" />
+    </div>
+
+    <div id="treeContainer" class="tree-container">
+        </div>
+
+    <script>
+        // 1. 默认静态数据
+        const staticData = [
+            { "id": "RootNode", "parent_id": null, "speedup": 1.0, "profile_dict": { "time_ms": 120.5, "memory_mb": 512 } },
+            { "id": "ChildA", "parent_id": "RootNode", "speedup": 1.5, "profile_dict": { "time_ms": 80.3, "ops": 1500, "status": "optimized" } },
+            { "id": "ChildB", "parent_id": "RootNode", "speedup": 0.8, "profile_dict": { "time_ms": 150.6, "warning": "bottleneck detected" } },
+            { "id": "GrandChildA1", "parent_id": "ChildA", "speedup": 2.1, "profile_dict": { "time_ms": 38.2 } },
+            { "id": "GrandChildA2", "parent_id": "ChildA", "speedup": 1.8, "profile_dict": { "time_ms": 44.6 } }
+        ];
+
+        // 2. 将扁平的 JSON 数组转化为层级树结构
+        function buildTree(flatData) {
+            let tree = [];
+            let lookup = {};
+            
+            flatData.forEach(node => {
+                lookup[node.id] = { ...node, children: [] };
+            });
+            
+            flatData.forEach(node => {
+                if (node.parent_id && lookup[node.parent_id]) {
+                    lookup[node.parent_id].children.push(lookup[node.id]);
+                } else {
+                    tree.push(lookup[node.id]); 
+                }
+            });
+            return tree;
+        }
+
+        // 3. 递归生成带有 ul/li 结构的 HTML 字符串
+        function generateTreeHTML(nodes) {
+            if (!nodes || nodes.length === 0) return '';
+            
+            let html = '<ul>';
+            nodes.forEach(node => {
+                html += '<li>';
+                
+                // 将字典格式化为漂亮的 JSON 字符串
+                const dictStr = JSON.stringify(node.profile_dict, null, 2);
+                
+                html += `
+                    <div class="node-box">
+                        <div class="node-header">${node.id}</div>
+                        <div class="node-speed">speedup: ${node.speedup}x</div>
+                        <details>
+                            <summary>profile</summary>
+                            <pre>${dictStr}</pre>
+                        </details>
+                    </div>
+                `;
+                
+                // 递归子节点
+                if (node.children && node.children.length > 0) {
+                    html += generateTreeHTML(node.children);
+                }
+                
+                html += '</li>';
+            });
+            html += '</ul>';
+            
+            return html;
+        }
+
+        // 4. 初始化和事件监听
+        const treeContainer = document.getElementById('treeContainer');
+        const fileInput = document.getElementById('jsonFileInput');
+
+        // 绘制函数
+        function draw(data) {
+            treeContainer.innerHTML = ''; // 清空上一次内容
+            const treeData = buildTree(data);
+            
+            // 包裹在一层 .tree 的 div 中以应用 CSS 样式
+            const treeWrapper = document.createElement('div');
+            treeWrapper.className = 'tree';
+            treeWrapper.innerHTML = generateTreeHTML(treeData);
+            
+            treeContainer.appendChild(treeWrapper);
+        }
+
+        // 监听文件上传事件
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const jsonData = JSON.parse(event.target.result);
+                    draw(jsonData);
+                } catch (error) {
+                    alert("文件解析失败，请确保它是一个规范的 JSON 文件！\n错误详情: " + error.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // 页面加载时，先绘制静态调试数据
+        draw(staticData);
+
+    </script>
+</body>
+</html>

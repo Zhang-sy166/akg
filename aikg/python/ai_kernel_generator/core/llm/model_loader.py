@@ -21,6 +21,7 @@ from typing import Optional, Union, List
 
 import httpx
 from langchain_deepseek import ChatDeepSeek
+from langchain_anthropic import ChatAnthropic
 from langchain_ollama import ChatOllama
 from langchain_core.embeddings import Embeddings
 from langchain_community.embeddings import OpenAIEmbeddings
@@ -228,7 +229,49 @@ def create_model(name: Optional[str] = None, config_path: Optional[str] = None) 
         extra_body = _build_thinking_extra_body(thinking_mode, extra_body)
         model.other_params = model_params
         model.extra_body = extra_body
+    elif name.startswith("claude"):
+        # 获取API密钥
+        api_key_env = preset_config.get("api_key_env")
+        if not api_key_env:
+            raise ValueError(f"预设 '{name}' 未配置 api_key_env")
 
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            raise ValueError(f"API密钥未找到。请设置环境变量 {api_key_env}")
+
+        # 提取模型参数 - 只排除api_key_env
+        model_params = {k: v for k, v in preset_config.items()
+                        if k != "api_key_env" and k != "frequency_penalty" and k != "presence_penalty"}
+        # 将 api_base key 重命名为为 anthropic_api_url
+        model_params["anthropic_api_url"] = model_params["api_base"]
+        del model_params["api_base"]
+
+        # 统一处理 thinking 配置，允许在 YAML 中通过 thinking_mode 字段控制
+        thinking_mode = model_params.pop("thinking_mode", None)
+        extra_body = model_params.pop("extra_body", None)
+        extra_body = _build_thinking_extra_body(thinking_mode, extra_body)
+        if extra_body:
+            model_params["extra_body"] = extra_body
+
+        # 记录连接信息
+        logger.info(
+            f"创建Langchain模型 '{name}': api_base={model_params.get('api_base', 'N/A')}, model={model_params.get('model', 'N/A')}")
+        # 显示环境变量信息
+        if api_key_env in os.environ:
+            api_key_value = os.environ[api_key_env]
+            # 只显示前8位和后4位，保护API密钥安全
+            masked_key = api_key_value[:8] + "*" * (len(api_key_value) - 12) + \
+                api_key_value[-4:] if len(api_key_value) > 12 else "***"
+            logger.info(f"  环境变量 {api_key_env}: {masked_key}")
+        else:
+            logger.info(f"  环境变量 {api_key_env}: 未设置")
+
+        timeout = httpx.Timeout(60, read=60 * 10)
+        # 创建DeepSeek模型实例
+        model = ChatAnthropic(
+            api_key=api_key,
+            **model_params
+        )
     else:
         # 获取API密钥
         api_key_env = preset_config.get("api_key_env")
