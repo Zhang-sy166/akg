@@ -29,9 +29,12 @@ class RouterFactory:
         
         async def route_after_designer(state: KernelGenState) -> str:
             # 1. Pruner 决定剪枝 → Designer重新生成
+            max_rounds = 3
             if state.get("prun_or_not"):
-                logger.info("Pruner decided to prune, routing back to designer")
-                return "designer"
+                prune_count = int(state.get("prune_retry_count") or 0)
+                if prune_count < max_rounds:
+                    logger.info("Pruner decided to prune, routing back to designer")
+                    return "designer"
             
             # 2. Pruner 决定保留 → 进入 Coder
             logger.info("Pruner decided to keep, routing to coder")

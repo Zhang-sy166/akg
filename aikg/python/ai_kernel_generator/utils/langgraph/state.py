@@ -109,3 +109,4 @@ class KernelGenState(TypedDict, total=False):
 
     # === Pruner 相关字段 ===
     last_pruned_sketch: Optional[str]
+    prune_retry_count: int
