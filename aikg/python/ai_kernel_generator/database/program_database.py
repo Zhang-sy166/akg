@@ -166,7 +166,7 @@ class ProgramDatabase():
         # 若回退到的【父代候选】收敛，则持续回退；持续回退时，步长固定为1；
         while len(fallback_candidate_list) != 0:
             for candidate in fallback_candidate_list:
-                if self.get_island(island_idx).get_program_by_id(candidate).get_impl_info().get("early_stopping_reason", None):
+                if self.get_island(island_idx).find_program_by_id(candidate).get_impl_info().get("early_stopping_reason", None):
                     return candidate
             fallback_depth = 1
             fallback_candidate_list = self.island_list[island_idx].get_fallback_candidate_list(stop_program_id, fallback_depth)
